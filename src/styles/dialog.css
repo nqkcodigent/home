@@ -1,0 +1,329 @@
+/* ============================================================
+   Dialog — cửa sổ Win98 + khung chân dung + vùng chữ kiểu "giấy"
+   ============================================================ */
+
+.dialog {
+  position: fixed;
+
+  left: 50%;
+  bottom: 28px;
+
+  width: min(860px, calc(100vw - 32px));
+
+  transform: translateX(-50%);
+
+  z-index: 1000;
+
+  cursor: pointer;
+
+  animation: dialog-enter 140ms steps(3, end);
+}
+
+.dialog__window {
+  padding: 3px;
+
+  background: var(--win-gray);
+
+  box-shadow: var(--bevel-out), 5px 5px 0 rgba(0, 0, 0, 0.35);
+}
+
+.dialog__titlebar {
+  display: flex;
+
+  align-items: center;
+
+  gap: 8px;
+
+  padding: 2px 4px 2px 6px;
+
+  background: linear-gradient(90deg, var(--win-navy), var(--win-blue));
+
+  color: #fff;
+
+  font-family: var(--font-pixel);
+
+  font-size: 19px;
+
+  letter-spacing: 0.08em;
+
+  text-transform: uppercase;
+}
+
+.dialog__title-dot {
+  width: 12px;
+  height: 12px;
+
+  background: var(--win-gray-light);
+
+  box-shadow:
+    inset -1px -1px 0 #404040,
+    inset 1px 1px 0 #fff;
+}
+
+.dialog__speaker {
+  flex: 1;
+
+  white-space: nowrap;
+
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+}
+
+.dialog__mood {
+  padding: 0 8px;
+
+  background: var(--win-gray);
+
+  color: var(--win-navy);
+
+  font-size: 15px;
+
+  letter-spacing: 0.06em;
+
+  box-shadow: var(--bevel-chip);
+}
+
+.dialog__window-buttons {
+  display: flex;
+
+  gap: 2px;
+}
+
+.dialog__window-buttons i {
+  display: grid;
+
+  place-items: center;
+
+  width: 16px;
+  height: 14px;
+
+  background: var(--win-gray);
+
+  color: #000;
+
+  font-family: var(--font-win);
+
+  font-size: 9px;
+
+  font-style: normal;
+
+  box-shadow:
+    inset -1px -1px 0 #000,
+    inset 1px 1px 0 #fff,
+    inset -2px -2px 0 #808080,
+    inset 2px 2px 0 #dfdfdf;
+}
+
+.dialog__window-buttons i:nth-child(1)::before {
+  content: "—";
+}
+
+.dialog__window-buttons i:nth-child(2)::before {
+  content: "□";
+}
+
+.dialog__window-buttons i:nth-child(3)::before {
+  content: "✕";
+}
+
+/* ------------------------------------------------------------ */
+
+.dialog__body {
+  display: flex;
+
+  gap: 12px;
+
+  padding: 12px;
+
+  background: var(--win-gray);
+}
+
+.dialog__portrait {
+  flex: 0 0 auto;
+
+  display: grid;
+
+  place-items: center;
+
+  width: 132px;
+  height: 132px;
+
+  padding: 2px;
+
+  background: var(--win-gray);
+
+  box-shadow: var(--bevel-in);
+
+  overflow: hidden;
+}
+
+.dialog__portrait-img {
+  display: block;
+
+  width: 128px;
+  height: 128px;
+}
+
+.dialog__content {
+  flex: 1;
+
+  display: flex;
+
+  flex-direction: column;
+
+  justify-content: space-between;
+
+  gap: 8px;
+
+  min-width: 0;
+}
+
+.dialog__text {
+  flex: 1;
+
+  margin: 0;
+
+  padding: 12px 14px;
+
+  min-height: 96px;
+
+  background: var(--win-paper);
+
+  color: #14181f;
+
+  font-family: var(--font-win);
+
+  font-size: clamp(15px, 1.6vw, 18px);
+
+  line-height: 1.75;
+
+  letter-spacing: 0.004em;
+
+  box-shadow: var(--bevel-in);
+}
+
+.dialog__caret {
+  margin-left: 1px;
+
+  color: var(--win-navy);
+
+  animation: cursor-blink 620ms infinite;
+}
+
+.dialog__footer {
+  display: flex;
+
+  align-items: center;
+
+  justify-content: flex-end;
+
+  gap: 10px;
+
+  min-height: 24px;
+}
+
+.dialog__skip,
+.dialog__next {
+  display: inline-flex;
+
+  align-items: center;
+
+  gap: 6px;
+
+  font-family: var(--font-pixel);
+
+  font-size: 17px;
+
+  color: var(--win-navy);
+}
+
+.dialog__skip {
+  color: #4a4a58;
+}
+
+.dialog__next {
+  animation: next-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes next-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes cursor-blink {
+  0%,
+  100% {
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+
+    transform: translateX(-50%) translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* ----------------------------------------------------------- */
+/* Emotion accents — title bar + mood chip đổi màu theo cảm xúc */
+/* ----------------------------------------------------------- */
+
+.dialog--tired .dialog__titlebar {
+  background: linear-gradient(90deg, #3f3f46, #8f8f96);
+}
+
+.dialog--lonely .dialog__titlebar {
+  background: linear-gradient(90deg, #001a4d, #0a6ba8);
+}
+
+.dialog--nostalgic .dialog__titlebar {
+  background: linear-gradient(90deg, #3d0060, #9b45ad);
+}
+
+.dialog--confused .dialog__titlebar {
+  background: linear-gradient(90deg, #5a4200, #bd8f00);
+}
+
+.dialog--warm .dialog__titlebar {
+  background: linear-gradient(90deg, #6b2f00, #cf7a2a);
+}
+
+.dialog--nostalgic .dialog__portrait {
+  box-shadow:
+    var(--bevel-in),
+    0 0 0 1px rgba(155, 69, 173, 0.35);
+}
+
+.dialog--fast .dialog__caret {
+  color: #b45309;
+}
+
+@media (max-width: 640px) {
+  .dialog__portrait {
+    width: 96px;
+    height: 96px;
+  }
+
+  .dialog__portrait-img {
+    width: 92px;
+    height: 92px;
+  }
+}

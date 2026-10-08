@@ -1,0 +1,252 @@
+{
+  "intro": {
+    "title": "Một ngày dài",
+    "scenes": [
+      {
+        "id": "open",
+        "type": "pause",
+        "duration": 300
+      },
+      {
+        "id": "city",
+        "type": "audio",
+        "op": "fadeIn",
+        "slot": "city",
+        "duration": 1800,
+        "volume": 0.28
+      },
+      {
+        "id": "tired",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Cuối cùng cũng hết một ngày nữa.",
+        "emotion": "tired"
+      },
+      {
+        "id": "walk_hall",
+        "type": "walk",
+        "to": "hall",
+        "duration": 1800
+      },
+      {
+        "id": "door",
+        "type": "audio",
+        "op": "play",
+        "slot": "doorOpen",
+        "volume": 0.45
+      },
+      {
+        "id": "door_pause",
+        "type": "pause",
+        "duration": 500
+      },
+      {
+        "id": "room_in",
+        "type": "audio",
+        "op": "crossFade",
+        "slot": "city",
+        "to": "room",
+        "duration": 2400,
+        "volume": 0.25
+      },
+      {
+        "id": "empty",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Nhà rộng hơn, đồ nhiều hơn... mà sao cứ thấy trống rỗng.",
+        "emotion": "lonely"
+      },
+      {
+        "id": "walk_bed",
+        "type": "walk",
+        "to": "bed",
+        "duration": 1200
+      },
+      {
+        "id": "old_times",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Hồi nhỏ thì khác hẳn.",
+        "emotion": "nostalgic"
+      },
+      {
+        "id": "scene1",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Chiều nào cũng nấn ná ở sân tới khi mẹ gọi về ăn cơm.",
+        "emotion": "nostalgic",
+        "portrait": "child"
+      },
+      {
+        "id": "scene2",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Một bãi đất trống, vài đứa bạn, thế là vui cả buổi.",
+        "emotion": "nostalgic",
+        "portrait": "friend"
+      },
+      {
+        "id": "want",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Ngày đó... mình chẳng cần gì khác.",
+        "emotion": "nostalgic",
+        "portrait": "child"
+      },
+      {
+        "id": "sit",
+        "type": "pause",
+        "duration": 400
+      },
+      {
+        "id": "sleep_sfx",
+        "type": "audio",
+        "op": "play",
+        "slot": "sleep",
+        "volume": 0.3
+      },
+      {
+        "id": "zoom_bed",
+        "type": "zoom",
+        "level": 1.35,
+        "duration": 2200
+      },
+      {
+        "id": "room_out",
+        "type": "audio",
+        "op": "fadeOut",
+        "slot": "room",
+        "duration": 2000
+      },
+      {
+        "id": "pre_dream",
+        "type": "pause",
+        "duration": 300
+      },
+      {
+        "id": "dream",
+        "type": "transition",
+        "scene": "ChildhoodScene",
+        "duration": 2600
+      }
+    ]
+  },
+
+  "childhood": {
+    "title": "Ngày ấy",
+    "scenes": [
+      {
+        "id": "village",
+        "type": "audio",
+        "op": "fadeIn",
+        "slot": "village",
+        "duration": 3500,
+        "volume": 0.28
+      },
+      {
+        "id": "birds",
+        "type": "audio",
+        "op": "fadeIn",
+        "slot": "childhoodBirds",
+        "duration": 4500,
+        "volume": 0.22
+      },
+      {
+        "id": "reveal",
+        "type": "reveal",
+        "duration": 1400
+      },
+      {
+        "id": "pullback",
+        "type": "zoom",
+        "level": 1,
+        "duration": 2400,
+        "follow": true
+      },
+      {
+        "id": "bell",
+        "type": "audio",
+        "op": "play",
+        "slot": "schoolBell",
+        "volume": 0.32
+      },
+      {
+        "id": "blink",
+        "type": "pause",
+        "duration": 400
+      },
+      {
+        "id": "wake",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Hả...? Đầu óc choáng choáng...",
+        "emotion": "confused",
+        "portrait": "child"
+      },
+      {
+        "id": "sense",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Sân nhà, mái ngói, mùi cỏ cháy...",
+        "emotion": "nostalgic",
+        "portrait": "child"
+      },
+      {
+        "id": "bell_line",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Tiếng trống trường vọng lại từ đâu đó... nghe mà rưng rưng.",
+        "emotion": "nostalgic",
+        "portrait": "child"
+      },
+      {
+        "id": "realize",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Này thì đúng là nhà mình ngày xưa rồi!",
+        "emotion": "warm",
+        "portrait": "child"
+      },
+      {
+        "id": "evening",
+        "type": "audio",
+        "op": "fadeIn",
+        "slot": "crickets",
+        "duration": 6000,
+        "volume": 0.14
+      },
+      {
+        "id": "wait",
+        "type": "pause",
+        "duration": 600
+      },
+      {
+        "id": "friend1",
+        "type": "dialog",
+        "speaker": "???",
+        "text": "Ê! Đứng bơ vơ đó làm gì vậy?",
+        "portrait": "friend"
+      },
+      {
+        "id": "friend2",
+        "type": "dialog",
+        "speaker": "???",
+        "text": "Đi chơi không? Đợi cậu ở bãi đất trống mãi rồi!",
+        "portrait": "friend"
+      },
+      {
+        "id": "reply",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Đi ngay! Khoan đã — đây là mơ hay thật vậy nhỉ?",
+        "emotion": "confused",
+        "portrait": "child"
+      },
+      {
+        "id": "controls_on",
+        "type": "controls",
+        "enabled": true
+      }
+    ]
+  }
+}
