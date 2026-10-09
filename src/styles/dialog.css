@@ -1,329 +1,239 @@
 /* ============================================================
-   Dialog — cửa sổ Win98 + khung chân dung + vùng chữ kiểu "giấy"
+   Hộp thoại — thẻ nổi ở đáy khung nhìn
    ============================================================ */
 
 .dialog {
-  position: fixed;
-
+  position: absolute;
   left: 50%;
-  bottom: 28px;
-
-  width: min(860px, calc(100vw - 32px));
+  bottom: max(22px, env(safe-area-inset-bottom, 0px));
 
   transform: translateX(-50%);
 
-  z-index: 1000;
+  width: min(60rem, calc(100% - 32px));
+  z-index: var(--z-dialog);
 
   cursor: pointer;
-
-  animation: dialog-enter 140ms steps(3, end);
+  user-select: none;
 }
 
-.dialog__window {
-  padding: 3px;
-
-  background: var(--win-gray);
-
-  box-shadow: var(--bevel-out), 5px 5px 0 rgba(0, 0, 0, 0.35);
-}
-
-.dialog__titlebar {
+.dialog__card {
+  position: relative;
   display: flex;
+  gap: 18px;
+  align-items: flex-start;
 
-  align-items: center;
+  padding: 20px 24px 18px 22px;
 
-  gap: 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--glass-line);
 
-  padding: 2px 4px 2px 6px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.96) 0%,
+    rgba(246, 253, 250, 0.94) 100%
+  );
 
-  background: linear-gradient(90deg, var(--win-navy), var(--win-blue));
+  box-shadow: var(--fab-gloss), var(--shadow);
 
-  color: #fff;
-
-  font-family: var(--font-pixel);
-
-  font-size: 19px;
-
-  letter-spacing: 0.08em;
-
-  text-transform: uppercase;
+  animation: dialogIn 0.28s cubic-bezier(0.22, 1.2, 0.36, 1) both;
 }
 
-.dialog__title-dot {
-  width: 12px;
-  height: 12px;
+@keyframes dialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
 
-  background: var(--win-gray-light);
-
-  box-shadow:
-    inset -1px -1px 0 #404040,
-    inset 1px 1px 0 #fff;
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
-.dialog__speaker {
-  flex: 1;
+/* Mũi thẻ chỉ xuống dưới — nói rằng đây là lời của NGƯỜI CHƠI/phía trước. */
+.dialog__tail {
+  position: absolute;
+  left: 46px;
+  bottom: -9px;
 
-  white-space: nowrap;
+  width: 20px;
+  height: 20px;
 
-  overflow: hidden;
+  background: rgba(248, 253, 251, 0.96);
+  border-right: 1px solid var(--glass-line);
+  border-bottom: 1px solid var(--glass-line);
 
-  text-overflow: ellipsis;
-}
-
-.dialog__mood {
-  padding: 0 8px;
-
-  background: var(--win-gray);
-
-  color: var(--win-navy);
-
-  font-size: 15px;
-
-  letter-spacing: 0.06em;
-
-  box-shadow: var(--bevel-chip);
-}
-
-.dialog__window-buttons {
-  display: flex;
-
-  gap: 2px;
-}
-
-.dialog__window-buttons i {
-  display: grid;
-
-  place-items: center;
-
-  width: 16px;
-  height: 14px;
-
-  background: var(--win-gray);
-
-  color: #000;
-
-  font-family: var(--font-win);
-
-  font-size: 9px;
-
-  font-style: normal;
-
-  box-shadow:
-    inset -1px -1px 0 #000,
-    inset 1px 1px 0 #fff,
-    inset -2px -2px 0 #808080,
-    inset 2px 2px 0 #dfdfdf;
-}
-
-.dialog__window-buttons i:nth-child(1)::before {
-  content: "—";
-}
-
-.dialog__window-buttons i:nth-child(2)::before {
-  content: "□";
-}
-
-.dialog__window-buttons i:nth-child(3)::before {
-  content: "✕";
-}
-
-/* ------------------------------------------------------------ */
-
-.dialog__body {
-  display: flex;
-
-  gap: 12px;
-
-  padding: 12px;
-
-  background: var(--win-gray);
+  transform: rotate(45deg);
+  border-radius: 0 0 5px 0;
 }
 
 .dialog__portrait {
   flex: 0 0 auto;
 
-  display: grid;
+  width: 84px;
+  height: 84px;
 
+  display: grid;
   place-items: center;
 
-  width: 132px;
-  height: 132px;
+  border-radius: 50%;
+  border: 3px solid #fff;
 
-  padding: 2px;
-
-  background: var(--win-gray);
-
-  box-shadow: var(--bevel-in);
+  background: linear-gradient(180deg, var(--green-100), var(--green-200));
+  box-shadow: var(--fab-gloss), var(--shadow-soft);
 
   overflow: hidden;
 }
 
+/* Ảnh chân dung là một vùng crop của spritesheet: phóng to rồi kéo đúng góc
+   vào khung, nên phải tắt nội suy để pixel không bị nhoè. */
 .dialog__portrait-img {
+  width: 100%;
+  height: 100%;
+
   display: block;
 
-  width: 128px;
-  height: 128px;
+  image-rendering: pixelated;
+  transform: scale(1.02);
 }
 
 .dialog__content {
-  flex: 1;
-
-  display: flex;
-
-  flex-direction: column;
-
-  justify-content: space-between;
-
-  gap: 8px;
-
+  flex: 1 1 auto;
   min-width: 0;
 }
 
+.dialog__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.dialog__speaker {
+  font-family: var(--font-title);
+  font-size: 1.24rem;
+  font-weight: 800;
+  color: var(--green-500);
+}
+
+.dialog__mood {
+  padding: 3px 12px;
+
+  border-radius: var(--radius-pill);
+  background: var(--green-50);
+  border: 1px solid var(--green-100);
+
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
 .dialog__text {
-  flex: 1;
-
   margin: 0;
+  min-height: 3.4em;
 
-  padding: 12px 14px;
-
-  min-height: 96px;
-
-  background: var(--win-paper);
-
-  color: #14181f;
-
-  font-family: var(--font-win);
-
-  font-size: clamp(15px, 1.6vw, 18px);
-
-  line-height: 1.75;
-
-  letter-spacing: 0.004em;
-
-  box-shadow: var(--bevel-in);
+  font-size: clamp(1.05rem, 1.9vw, 1.32rem);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ink);
 }
 
 .dialog__caret {
-  margin-left: 1px;
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--green-400);
+  animation: caretBlink 0.9s steps(1) infinite;
+}
 
-  color: var(--win-navy);
-
-  animation: cursor-blink 620ms infinite;
+@keyframes caretBlink {
+  50% {
+    opacity: 0;
+  }
 }
 
 .dialog__footer {
   display: flex;
-
-  align-items: center;
-
   justify-content: flex-end;
-
-  gap: 10px;
-
-  min-height: 24px;
+  align-items: center;
+  min-height: 26px;
+  margin-top: 6px;
 }
 
-.dialog__skip,
 .dialog__next {
   display: inline-flex;
-
   align-items: center;
+  gap: 8px;
 
-  gap: 6px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--green-500);
 
-  font-family: var(--font-pixel);
+  animation: nextPulse 1.6s ease-in-out infinite;
+}
 
-  font-size: 17px;
+@keyframes nextPulse {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
 
-  color: var(--win-navy);
+  50% {
+    transform: translateY(-3px);
+  }
 }
 
 .dialog__skip {
-  color: #4a4a58;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--ink-soft);
 }
 
-.dialog__next {
-  animation: next-pulse 1.4s ease-in-out infinite;
+/* Nền hơi đổi tông theo cảm xúc — đủ để "nghe" được giọng điệu, không đủ để
+   phá vỡ bảng màu chung. */
+.dialog--tired .dialog__speaker,
+.dialog--lonely .dialog__speaker,
+.dialog--confused .dialog__speaker {
+  color: #6b7a9e;
 }
 
-@keyframes next-pulse {
-  0%,
-  100% {
-    opacity: 0.55;
+.dialog--lonely .dialog__card {
+  background: linear-gradient(
+    180deg,
+    rgba(246, 249, 255, 0.96) 0%,
+    rgba(238, 244, 252, 0.94) 100%
+  );
+}
+
+.dialog--warm .dialog__card,
+.dialog--nostalgic .dialog__card {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 253, 245, 0.97) 0%,
+    rgba(255, 246, 226, 0.94) 100%
+  );
+}
+
+.dialog--warm .dialog__speaker,
+.dialog--nostalgic .dialog__speaker {
+  color: var(--clay);
+}
+
+.dialog--fast .dialog__card {
+  box-shadow: var(--fab-gloss), var(--shadow), 0 0 0 3px rgba(155, 228, 202, 0.6);
+}
+
+@media (max-width: 720px) {
+  .dialog__card {
+    padding: 16px 16px 14px;
+    gap: 12px;
   }
 
-  50% {
-    opacity: 1;
-  }
-}
-
-@keyframes cursor-blink {
-  0%,
-  100% {
-    opacity: 0;
-  }
-
-  50% {
-    opacity: 1;
-  }
-}
-
-@keyframes dialog-enter {
-  from {
-    opacity: 0;
-
-    transform: translateX(-50%) translateY(16px);
-  }
-
-  to {
-    opacity: 1;
-
-    transform: translateX(-50%) translateY(0);
-  }
-}
-
-/* ----------------------------------------------------------- */
-/* Emotion accents — title bar + mood chip đổi màu theo cảm xúc */
-/* ----------------------------------------------------------- */
-
-.dialog--tired .dialog__titlebar {
-  background: linear-gradient(90deg, #3f3f46, #8f8f96);
-}
-
-.dialog--lonely .dialog__titlebar {
-  background: linear-gradient(90deg, #001a4d, #0a6ba8);
-}
-
-.dialog--nostalgic .dialog__titlebar {
-  background: linear-gradient(90deg, #3d0060, #9b45ad);
-}
-
-.dialog--confused .dialog__titlebar {
-  background: linear-gradient(90deg, #5a4200, #bd8f00);
-}
-
-.dialog--warm .dialog__titlebar {
-  background: linear-gradient(90deg, #6b2f00, #cf7a2a);
-}
-
-.dialog--nostalgic .dialog__portrait {
-  box-shadow:
-    var(--bevel-in),
-    0 0 0 1px rgba(155, 69, 173, 0.35);
-}
-
-.dialog--fast .dialog__caret {
-  color: #b45309;
-}
-
-@media (max-width: 640px) {
   .dialog__portrait {
-    width: 96px;
-    height: 96px;
+    width: 62px;
+    height: 62px;
   }
 
-  .dialog__portrait-img {
-    width: 92px;
-    height: 92px;
+  .dialog__tail {
+    left: 34px;
   }
 }

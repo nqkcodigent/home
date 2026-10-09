@@ -15,16 +15,18 @@ export function ChapterCard({ card }: Props) {
 
   return (
     <div className="chapter" role="presentation">
-      <div className="chapter__window">
-        <div className="chapter__bar">
+      <div className="chapter__card" key={`${card.index}-${card.title}`}>
+        <span className="chapter__badge">
           {card.index ? `Hồi ${card.index}` : "Hồi ký"}
-        </div>
+        </span>
 
-        <div className="chapter__title">{card.title}</div>
+        <span className="chapter__title">{card.title}</span>
 
         {card.subtitle && (
-          <div className="chapter__subtitle">{card.subtitle}</div>
+          <span className="chapter__subtitle">{card.subtitle}</span>
         )}
+
+        <span className="chapter__rule" aria-hidden="true" />
       </div>
     </div>
   );

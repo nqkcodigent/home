@@ -1,50 +1,47 @@
-import { useEffect, useState } from "react";
-import { gameEvents } from "./game/events";
-import { game } from "./game/Game";
-import { ChapterCard } from "./components/ChapterCard";
-import { DialogBox } from "./components/DialogBox";
-import { GameHUD } from "./components/GameHUD";
+import { useEffect, useRef, useState } from "react";
+
+import {
+  Announce,
+  ChapterCard,
+  DialogBox,
+  GameHUD,
+  Joystick,
+  StartScreen,
+} from "./components";
+import { gameEvents } from "./events";
+import { worldGame } from "./world/WorldGame";
 
 import type { ChapterState } from "./components/ChapterCard";
-
-interface DialogState {
-  id?: string;
-  speaker?: string;
-  text: string;
-  emotion?: string;
-  portrait?: string;
-}
-
-interface InteractionState {
-  visible: boolean;
-  text?: string;
-}
-
-interface HudState {
-  time?: string;
-  chapter?: string;
-  memories?: number;
-  total?: number;
-}
+import type {
+  DialogPayload,
+  HudPayload,
+} from "./events";
 
 /** Thời gian thẻ chương nằm trên màn hình (ms) */
 const CHAPTER_CARD_MS = 4200;
 
 export default function App() {
-  const [dialog, setDialog] = useState<DialogState | undefined>();
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const [interaction, setInteraction] = useState<InteractionState | undefined>();
+  const [started, setStarted] = useState(false);
 
-  const [hud, setHud] = useState<HudState | undefined>();
+  const [dialog, setDialog] = useState<DialogPayload | undefined>();
+
+  const [hud, setHud] = useState<HudPayload | undefined>();
 
   const [chapter, setChapter] = useState<ChapterState | undefined>();
 
   const [controls, setControls] = useState(false);
 
-  // Khởi tạo Phaser SAU khi #phaser-container đã render
+  // Dựng engine NGAY khi bấm Bắt đầu: một cú bấm là điều kiện để trình duyệt
+  // cho phát âm thanh, nên thế giới chỉ khởi động sau đó.
   useEffect(() => {
-    game.start();
-  }, []);
+    const container = containerRef.current;
+
+    if (!started || !container) return;
+
+    worldGame.start(container);
+  }, [started]);
 
   // Thẻ chương tự tắt sau ít giây
   useEffect(() => {
@@ -58,43 +55,35 @@ export default function App() {
   }, [chapter]);
 
   useEffect(() => {
-    const handleDialog = (data: DialogState) => setDialog(data);
+    const offDialog = gameEvents.on("dialog", (data) => setDialog(data));
 
-    const handleClose = () => setDialog(undefined);
+    const offClose = gameEvents.on("dialogClose", () => setDialog(undefined));
 
-    const handleInteraction = (data: InteractionState) => setInteraction(data);
+    // hud là patch: chỉ gửi phần thay đổi (vd: số hồi ký)
+    const offHud = gameEvents.on("hud", (data) =>
+      setHud((previous) => ({ ...previous, ...data })),
+    );
 
-    // hud là patch: scene chỉ gửi phần thay đổi (vd: số hồi ký)
-    const handleHud = (data: HudState) =>
-      setHud((previous) => ({ ...previous, ...data }));
+    const offChapter = gameEvents.on("chapter", (data) => setChapter(data));
 
-    const handleChapter = (data: ChapterState) => setChapter(data);
-
-    const handleControls = (data: { enabled: boolean }) =>
-      setControls(data.enabled);
-
-    gameEvents.on("dialog", handleDialog);
-    gameEvents.on("dialogClose", handleClose);
-    gameEvents.on("interaction", handleInteraction);
-    gameEvents.on("hud", handleHud);
-    gameEvents.on("chapter", handleChapter);
-    gameEvents.on("controls", handleControls);
+    const offControls = gameEvents.on("controls", (data) =>
+      setControls(data.enabled),
+    );
 
     return () => {
-      gameEvents.off("dialog", handleDialog);
-      gameEvents.off("dialogClose", handleClose);
-      gameEvents.off("interaction", handleInteraction);
-      gameEvents.off("hud", handleHud);
-      gameEvents.off("chapter", handleChapter);
-      gameEvents.off("controls", handleControls);
+      offDialog();
+      offClose();
+      offHud();
+      offChapter();
+      offControls();
     };
   }, []);
 
   return (
     <main className="game">
-      <div id="phaser-container" className="game__canvas" />
+      <div className="game__world" ref={containerRef} />
 
-      <ChapterCard card={chapter} />
+      <div className="game__vignette" aria-hidden="true" />
 
       <GameHUD
         time={hud?.time}
@@ -104,13 +93,11 @@ export default function App() {
         total={hud?.total}
       />
 
-      {interaction?.visible && !dialog && (
-        <div className="interaction">
-          <span className="key">E</span>
+      <ChapterCard card={chapter} />
 
-          <span>{interaction.text ?? "Tương tác"}</span>
-        </div>
-      )}
+      <Announce />
+
+      <Joystick />
 
       {dialog && (
         <DialogBox
@@ -121,6 +108,8 @@ export default function App() {
           portrait={dialog.portrait}
         />
       )}
+
+      {!started && <StartScreen onStart={() => setStarted(true)} />}
     </main>
   );
 }

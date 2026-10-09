@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
 
-import { playSfx } from "../game/audio/uiSfx";
-import { gameEvents } from "../game/events";
+import { playSfx } from "../ui/sfx";
+import { gameEvents } from "../events";
 import { getPortrait } from "../ui/portraits";
 import { useTypewriter } from "../ui/useTypewriter";
+import { InputGlyph } from "./InputGlyph";
 
 interface Props {
   id?: string;
@@ -15,15 +16,10 @@ interface Props {
 
 const EMOTION_LABEL: Record<string, string> = {
   tired: "mệt nhoài",
-
   lonely: "trống trải",
-
   nostalgic: "hồi tưởng",
-
   confused: "bối rối",
-
   warm: "ấm áp",
-
   hopeful: "hi vọng",
 };
 
@@ -43,13 +39,13 @@ export function DialogBox({ id, speaker, text, emotion, portrait }: Props) {
   );
 
   const advance = () => {
-    playSfx("confirm");
-
     if (!isComplete) {
       fastForward();
 
       return;
     }
+
+    playSfx("confirm");
 
     gameEvents.emit("dialogNext", undefined);
     gameEvents.emit("dialogClose", undefined);
@@ -91,46 +87,38 @@ export function DialogBox({ id, speaker, text, emotion, portrait }: Props) {
       data-dialog-id={id}
       onClick={advance}
     >
-      <div className="dialog__window">
-        <div className="dialog__titlebar">
-          <span className="dialog__title-dot" aria-hidden="true" />
+      <div className="dialog__card">
+        <span className="dialog__tail" aria-hidden="true" />
 
-          <span className="dialog__speaker">{speaker ?? "Ký ức"}</span>
+        {portraitStyle && (
+          <div className="dialog__portrait">
+            <span className="dialog__portrait-img" style={portraitStyle} />
+          </div>
+        )}
 
-          {mood && <span className="dialog__mood">{mood}</span>}
+        <div className="dialog__content">
+          <div className="dialog__head">
+            <span className="dialog__speaker">{speaker ?? "Ký ức"}</span>
 
-          <span className="dialog__window-buttons" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-        </div>
+            {mood && <span className="dialog__mood">{mood}</span>}
+          </div>
 
-        <div className="dialog__body">
-          {portraitStyle && (
-            <div className="dialog__portrait">
-              <span className="dialog__portrait-img" style={portraitStyle} />
-            </div>
-          )}
+          <p className="dialog__text">
+            {visible}
+            {!isComplete && <span className="dialog__caret">▍</span>}
+          </p>
 
-          <div className="dialog__content">
-            <p className="dialog__text">
-              {visible}
-
-              {!isComplete && <span className="dialog__caret">▌</span>}
-            </p>
-
-            <div className="dialog__footer">
-              {isComplete ? (
-                <span className="dialog__next">
-                  <span className="key key--small">Space</span> tiếp tục
-                </span>
-              ) : (
-                <span className="dialog__skip">
-                  {isFastForwarding ? "đang hiện nhanh…" : "bấm để hiện nhanh"}
-                </span>
-              )}
-            </div>
+          <div className="dialog__footer">
+            {isComplete ? (
+              <span className="dialog__next">
+                <InputGlyph action="confirm" />
+                đọc tiếp
+              </span>
+            ) : (
+              <span className="dialog__skip">
+                {isFastForwarding ? "đang hiện nhanh…" : "bấm để hiện nhanh"}
+              </span>
+            )}
           </div>
         </div>
       </div>

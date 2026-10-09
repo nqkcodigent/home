@@ -25,6 +25,20 @@ CC0 assets do not require attribution, although attribution is appreciated.
 
 Some audio files in this package are CC BY 4.0 and some are CC BY-NC 4.0.
 
+## Font chữ (giao diện)
+
+- `ui/fonts/baloo2-*.woff2`, `ui/fonts/nunito-*.woff2` — Baloo 2 & Nunito,
+  tải bằng `node scripts/fetch-ui-fonts.mjs`.
+- **SIL Open Font License 1.1** (OFL). Cả hai đều có subset `vietnamese`
+  (U+1EA0-1EF9) nên dấu tiếng Việt không rơi về font hệ thống.
+
+## Biểu tượng & SVG
+
+- Mọi biểu tượng trong `src/components/*.tsx` và `src/components/glyph.ts`
+  được vẽ tay trong mã nguồn, không lấy từ bộ icon bên ngoài.
+
+## Âm thanh
+
 ### CC BY 4.0
 
 - footsteps.mp3

@@ -1,0 +1,113 @@
+/*
+ * Token thiết kế + kiểu phím tắt dùng chung.
+ *
+ * Bảng màu lấy từ repo tham chiếu (character-threejs): kem, xanh mạ non, mực
+ * xanh đậm, vàng nắng. Bo tròn lớn, bóng mềm, không viền cứng — tông "đồ chơi
+ * gỗ" chứ không phải "giao diện hệ điều hành".
+ */
+
+@import "./fonts.css";
+
+:root {
+  --font-title: "Baloo 2", "Nunito", ui-rounded, system-ui, sans-serif;
+  --font-body: "Nunito", ui-rounded, system-ui, -apple-system, sans-serif;
+
+  --cream: #f8fbfa;
+  --green-50: #f2f9f7;
+  --green-100: #d7f2e4;
+  --green-200: #9be4ca;
+  --green-400: #5fc594;
+  --green-500: #41a06e;
+  --ink: #234b3a;
+  --ink-soft: rgba(42, 90, 76, 0.66);
+  --gold: #ffd426;
+  --blue: #5a8af5;
+  --red: #ff6b6b;
+  --clay: #d98b6a;
+
+  --radius: 22px;
+  --radius-sm: 15px;
+  --radius-pill: 999px;
+
+  --shadow: 0 18px 44px rgba(39, 90, 70, 0.18), 0 6px 14px rgba(60, 100, 80, 0.09);
+  --shadow-soft: 0 8px 18px rgba(39, 90, 70, 0.12);
+
+  --glass: rgba(255, 255, 255, 0.82);
+  --glass-line: rgba(95, 185, 143, 0.35);
+
+  /* Mặt phím/nút: một đường sáng trên đỉnh, một bóng mờ ở đáy, và một bóng
+     CỨNG vài pixel — bóng cứng chính là "độ dày" của vật thể, nhờ nó mà nút
+     nằm trên mặt phẳng thay vì dán lên đó. */
+  --fab-surface: linear-gradient(178deg, #ffffff 0%, #f2fbf6 52%, #e6f6ee 100%);
+  --fab-gloss: inset 0 1.5px 0 rgba(255, 255, 255, 0.95);
+  --fab-lip: inset 0 -3px 0 rgba(86, 172, 132, 0.22);
+  --fab-edge: 0 3px 0 rgba(64, 148, 108, 0.3);
+  --fab-cast: 0 8px 18px rgba(26, 76, 56, 0.18);
+
+  --z-world: 1;
+  --z-badges: 5;
+  --z-hud: 20;
+  --z-dialog: 30;
+  --z-dream: 40;
+  --z-cover: 50;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: #0d1a17;
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+/* ── Phím tắt ───────────────────────────────────────────────────────────── */
+
+.glyph-host {
+  display: inline-flex;
+}
+
+.glyph {
+  display: inline-grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+
+  background: var(--fab-surface);
+  color: var(--ink);
+
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+
+  border-radius: 8px;
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--fab-gloss), var(--fab-lip), var(--fab-edge);
+}
+
+.glyph--wide {
+  min-width: 46px;
+}
+
+.glyph--touch {
+  background: rgba(255, 255, 255, 0.92);
+}

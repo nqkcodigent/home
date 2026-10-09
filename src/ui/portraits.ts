@@ -8,7 +8,7 @@ import {
   punyFrameAt,
   punyRowOf,
   type PunyDirection,
-} from "../game/assets/punyFrames";
+} from "./punyFrames";
 
 /**
  * Chân dung dialog lấy trực tiếp từ spritesheet nhân vật (768×256, frame 32×32,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PUNY_SHEET_SIZE } from "../../game/assets/punyFrames";
+import { PUNY_SHEET_SIZE } from "../punyFrames";
 import {
   PORTRAIT_CROP,
   cropToBackground,
