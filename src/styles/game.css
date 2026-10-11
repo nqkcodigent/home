@@ -482,10 +482,69 @@
   box-shadow: var(--fab-gloss), var(--fab-lip), 0 1px 0 rgba(52, 128, 92, 0.3);
 }
 
+/* Ba bước của buổi chiều, in trên màn hình mở đầu. */
+.cover__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+
+  margin: 6px 0 0;
+  padding: 14px 18px 14px 34px;
+
+  max-width: 26rem;
+
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(4px);
+
+  text-align: left;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f4fff8;
+}
+
+.cover__steps li {
+  padding-left: 2px;
+  text-shadow: 0 1px 4px rgba(20, 60, 44, 0.4);
+}
+
+.cover__steps li::marker {
+  color: var(--gold);
+  font-weight: 800;
+}
+
+/* Vạch tiến độ hồi ký, nằm trong chính viên thuốc: “còn bao xa nữa” là câu
+   người chơi tự hỏi suốt buổi chiều, và hai con số thì phải tự trừ trong đầu. */
+.hud__track {
+  display: inline-block;
+  width: 46px;
+  height: 6px;
+
+  margin-left: 2px;
+
+  border-radius: var(--radius-pill);
+  background: rgba(65, 160, 110, 0.2);
+  overflow: hidden;
+}
+
+.hud__track-fill {
+  display: block;
+  height: 100%;
+
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--green-200), var(--green-500));
+  transition: width 0.35s cubic-bezier(0.22, 1.2, 0.36, 1);
+}
+
 @media (max-width: 720px) {
   .hud__pill {
     font-size: 0.88rem;
     padding: 7px 13px;
+  }
+
+  .hud__track {
+    width: 32px;
   }
 
   .move-hint {

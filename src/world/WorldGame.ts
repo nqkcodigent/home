@@ -2,6 +2,8 @@ import * as THREE from "three";
 
 import { Badges } from "./interact/Badges";
 import { CameraRig } from "./CameraRig";
+import { KiteActivity } from "./activities/kite/KiteActivity";
+import { isActivity } from "./activities";
 import { Engine } from "./Engine";
 import { HowlerAudio } from "./audio/HowlerAudio";
 import { Input } from "./Input";
@@ -71,11 +73,17 @@ export class WorldGame {
 
   private location: LocationRuntime | undefined;
 
+  /** Trò chơi con đang chạy (thả diều). Chỉ một ván một lúc. */
+  private activity: KiteActivity | undefined;
+
   private detachFrame: (() => void) | undefined;
 
   private readonly collected = new Set<string>();
 
   private activeSpotId: string | undefined;
+
+  /** Lời kết của bối cảnh chỉ đọc một lần. */
+  private epilogueDone = false;
 
   private controlsEnabled = false;
 
@@ -125,6 +133,9 @@ export class WorldGame {
   destroy() {
     this.detachFrame?.();
     this.detachFrame = undefined;
+
+    this.activity?.dispose();
+    this.activity = undefined;
 
     this.teardownLocation();
 
@@ -227,6 +238,7 @@ export class WorldGame {
     this.location = location;
     this.collected.clear();
     this.activeSpotId = undefined;
+    this.epilogueDone = false;
 
     engine.scene.add(location.group);
 
@@ -270,8 +282,10 @@ export class WorldGame {
       subtitle: location.heading.subtitle,
     });
 
-    if (location.spots.length > 0) {
-      gameEvents.emit("hud", { memories: 0, total: location.spots.length });
+    const memoryTotal = this.memoryTotal(location);
+
+    if (memoryTotal > 0) {
+      gameEvents.emit("hud", { memories: 0, total: memoryTotal });
     }
 
     void storyDirector
@@ -384,9 +398,63 @@ export class WorldGame {
       },
 
       transition: (beat) => this.transition(beat.scene, beat.duration ?? 3000),
+
+      activity: (beat) => this.playActivity(beat.activity, beat.duration),
     };
 
     storyDirector.attachStage({ name: "World", handlers });
+  }
+
+  /**
+   * Nhịp `activity` — giao quyền cho một trò chơi con.
+   *
+   * Đây là chỗ DUY NHẤT đấu dây giữa cốt truyện và minigame: cốt truyện chỉ
+   * biết TÊN trò chơi và nó được bao nhiêu thời gian, còn minigame không biết
+   * gì về nhịp truyện. Tên không có trong bảng thì lỗi nêu tên — giống mọi
+   * nhịp khác, không im lặng bỏ qua.
+   *
+   * KHÔNG bật lại điều khiển ở đây: nhịp `controls` trong data vẫn là thứ duy
+   * nhất quyết định việc đó, nên đọc story.json là biết lúc nào người chơi
+   * cầm lái. Nếu tự bật ở đây thì một đoạn thoại ngay sau đó sẽ cho người chơi
+   * vừa đọc vừa chạy lung tung.
+   */
+  private async playActivity(name: string, durationMs?: number) {
+    if (!isActivity(name)) {
+      throw new Error(`World: không có trò chơi "${name}"`);
+    }
+
+    const engine = this.engine;
+    const location = this.location;
+
+    if (!engine || !location) {
+      throw new Error("World: chưa vào bối cảnh nào để chơi");
+    }
+
+    if (this.activity) {
+      throw new Error("World: đang có một trò chơi chạy dở");
+    }
+
+    this.setControls(false);
+
+    const activity = new KiteActivity({
+      engine,
+      character: location.character,
+      readInput: () => this.input?.kiteInput() ?? { reel: 0, steer: 0 },
+      camera: (target, distance) => this.rig?.setCinematic(target, distance),
+      forward: location.kiteForward ?? { x: 1, z: 0 },
+      durationMs,
+    });
+
+    this.activity = activity;
+
+    try {
+      await activity.play();
+    } finally {
+      // `finally` chứ không phải sau `await`: một lỗi giữa ván cũng không được
+      // để diều nằm lại trong scene hoặc camera kẹt ở cảnh điện ảnh.
+      activity.dispose();
+      this.activity = undefined;
+    }
   }
 
   /**
@@ -458,12 +526,31 @@ export class WorldGame {
     }
   }
 
+  /** Số điểm hồi ký THẬT của bối cảnh — điểm mở trò chơi con không tính. */
+  private memoryTotal(location: LocationRuntime): number {
+    return location.spots.filter((spot) => !spot.activity).length;
+  }
+
   private async remember(spot: Spot<StoryLine>) {
     const location = this.location;
 
     if (!location) return;
 
     this.setControls(false);
+
+    // Điểm mở trò chơi con: không có thoại để đọc, và cũng không "thu thập" —
+    // thả diều thì chiều nào cũng thả lại được.
+    if (spot.activity) {
+      try {
+        await this.playActivity(spot.activity);
+      } finally {
+        // Cảnh có thể đã đổi trong lúc chơi — khi đó không bật lại điều khiển
+        // của bối cảnh cũ nữa.
+        if (this.location === location) this.setControls(true);
+      }
+
+      return;
+    }
 
     await storyDirector.say(spot.payload as StoryLine);
 
@@ -477,10 +564,31 @@ export class WorldGame {
 
     gameEvents.emit("hud", {
       memories: this.collected.size,
-      total: location.spots.length,
+      total: this.memoryTotal(location),
     });
 
     this.setControls(true);
+
+    this.maybeEpilogue(location);
+  }
+
+  /**
+   * Lời kết của chương — đọc khi sân đã nhặt hết hồi ký.
+   *
+   * Dùng `say()` chứ không phải một nhịp trong script: đây là phản ứng với
+   * việc người chơi đã làm, chứ không phải một bước của kịch bản. Chỗ này an
+   * toàn vì `remember()` chạy từ vòng lặp frame, không nằm trong hàng đợi của
+   * director — nếu gọi `say()` từ TRONG một nhịp thì hàng đợi tự chờ chính nó.
+   */
+  private maybeEpilogue(location: LocationRuntime) {
+    const epilogue = location.epilogue;
+
+    if (!epilogue || this.epilogueDone) return;
+    if (this.collected.size < this.memoryTotal(location)) return;
+
+    this.epilogueDone = true;
+
+    void storyDirector.say(epilogue);
   }
 
   private updateFootsteps() {

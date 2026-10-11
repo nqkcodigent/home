@@ -14,7 +14,15 @@ export interface Spot<P = unknown> {
   /** Bán kính tương tác (mét) */
   radius: number;
   label: string;
+  /** Dòng thoại đọc lên khi tương tác (bỏ trống nếu điểm này mở một trò chơi) */
   payload?: P;
+  /**
+   * Tên trò chơi con mở ra khi tương tác, thay cho một dòng thoại (vd: `kite`).
+   *
+   * Điểm kiểu này KHÔNG được tính vào số hồi ký và không bao giờ "thu thập" —
+   * thả diều thì chiều nào cũng thả lại được.
+   */
+  activity?: string;
 }
 
 export interface SpotMatch<P> {

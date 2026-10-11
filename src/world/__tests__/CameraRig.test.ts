@@ -30,6 +30,56 @@ function run(
   }
 }
 
+describe("CameraRig — chế độ điện ảnh", () => {
+  it("khoá tâm ngắm vào điểm chỉ định và nới ống kính", () => {
+    const camera = new THREE.PerspectiveCamera(46, 1);
+    const tweens = new Tweens();
+    const rig = new CameraRig(camera, tweens);
+
+    rig.lookAt(0, 0, 0);
+    rig.setCinematic({ x: 0, y: 30, z: 0 }, 24, -0.08, 58);
+
+    for (let index = 0; index < 120; index += 1) {
+      rig.update(1 / 60, NO_LOOK, index / 60);
+    }
+
+    expect(camera.fov).toBeCloseTo(58, 1);
+    expect(camera.position.y).toBeGreaterThan(20);
+
+    // Camera nhìn LÊN con diều: điểm ngắm nằm trên đầu camera.
+    const forward = new THREE.Vector3();
+
+    camera.getWorldDirection(forward);
+
+    expect(forward.y).toBeGreaterThan(0.04);
+  });
+
+  it("nhả cảnh điện ảnh thì trả lại khoảng cách và ống kính cũ", () => {
+    const camera = new THREE.PerspectiveCamera(46, 1);
+    const tweens = new Tweens();
+    const rig = new CameraRig(camera, tweens);
+
+    rig.lookAt(0, 0, 0);
+    rig.setCinematic({ x: 0, y: 30, z: 0 }, 30, 0.06, 58);
+
+    for (let index = 0; index < 120; index += 1) {
+      rig.update(1 / 60, NO_LOOK, index / 60);
+    }
+
+    const wide = camera.fov;
+
+    rig.setCinematic(undefined);
+
+    for (let index = 0; index < 240; index += 1) {
+      rig.update(1 / 60, NO_LOOK, index / 60);
+    }
+
+    expect(camera.fov).toBeLessThan(wide);
+    expect(camera.fov).toBeCloseTo(46, 1);
+    expect(rig.distanceToTarget).toBeLessThan(12);
+  });
+});
+
 describe("CameraRig", () => {
   it("camera luôn cách tâm ngắm đúng bằng khoảng cách đặt trước", () => {
     const harness = setup();

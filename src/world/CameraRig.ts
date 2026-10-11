@@ -59,6 +59,21 @@ export class CameraRig {
   private initialised = false;
 
   /**
+   * Chế độ điện ảnh — xem `setCinematic()`.
+   */
+  private cinematic:
+    | { distance: number; pitch: number; fov: number }
+    | undefined;
+
+  private readonly cinematicTarget = new THREE.Vector3();
+
+  /** FOV gốc, để trả lại đúng ống kính cũ khi hết cảnh điện ảnh. */
+  private readonly baseFov: number;
+
+  /** Khoảng cách cần trôi về sau khi hết cảnh điện ảnh. */
+  private returnDistance: number | undefined;
+
+  /**
    * @param tweens  Bộ hiệu ứng DÙNG CHUNG với WorldGame. Cần rig tự sở hữu một
    *   bộ riêng thì phải có hai chỗ gọi `update()` — và quên một chỗ nghĩa là
    *   mọi nhịp `zoom`/`pan` chờ mãi không xong.
@@ -78,6 +93,7 @@ export class CameraRig {
 
     this.distance = this.options.distance;
     this.baseDistance = this.options.distance;
+    this.baseFov = camera.fov;
   }
 
   /** Góc quay hiện tại — dùng làm mốc cho chuyển động tương đối camera. */
@@ -162,6 +178,7 @@ export class CameraRig {
   resetZoom() {
     this.distance = this.options.distance;
     this.baseDistance = this.options.distance;
+    this.returnDistance = undefined;
   }
 
   /**
@@ -183,14 +200,85 @@ export class CameraRig {
     this.lookOffset.set(0, 0, 0);
     this.followEnabled = true;
     this.initialised = false;
+
+    // Bối cảnh mới thì mọi thứ của cảnh cũ phải hết hiệu lực: hết cảnh điện
+    // ảnh, hết quán tính zoom, và trả lại ống kính gốc.
+    this.cinematic = undefined;
+    this.returnDistance = undefined;
+
+    if (this.camera.fov !== this.baseFov) {
+      this.camera.fov = this.baseFov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   setYaw(yaw: number) {
     this.yaw = yaw;
   }
 
+  /**
+   * Nhịp điện ảnh: khoá tâm ngắm vào một điểm bất kỳ và nới ống kính.
+   *
+   * Vì sao cần: minigame thả diều kéo dài tới 60 m dây, mà góc nhìn thứ ba
+   * bám nhân vật thì không khung hình nào chứa nổi cả người chơi lẫn con diều
+   * ở cỡ bình thường. Chế độ này chỉ đổi BA con số (khoảng cách, pitch, FOV) và
+   * tạm ngừng xoay theo chuột — người chơi đang điều khiển diều, kéo chuột là
+   * để kéo dây.
+   *
+   * Gọi `setCinematic(undefined)` để trả lại camera góc nhìn thứ ba; mọi giá
+   * trị đều trôi về đích theo hàm mũ nên vào/ra cảnh đều mượt.
+   */
+  setCinematic(
+    target: { x: number; y: number; z: number } | undefined,
+    distance = 24,
+    // Pitch âm: camera hạ xuống DƯỚI điểm ngắm để nhìn lên. Diều luôn ở trên
+    // đầu, nên khung hình đúng là khung hình ngước lên trời.
+    pitch = -0.08,
+    fov = 58,
+  ) {
+    if (!target) {
+      this.cinematic = undefined;
+      // Không đặt lại ngay: camera TRÔI về cỡ cũ trong vài phần giây (xem
+      // `returnDistance` trong update), nếu không thì vừa hết ván diều là
+      // khung hình nhảy một cái.
+      this.returnDistance = this.baseDistance;
+
+      return;
+    }
+
+    this.cinematic = { distance, pitch, fov };
+    this.cinematicTarget.set(target.x, target.y, target.z);
+  }
+
   update(dt: number, look: LookDelta, elapsed: number) {
-    if (this.followEnabled) {
+    const cinematic = this.cinematic;
+
+    if (cinematic) {
+      // Trôi về thông số điện ảnh; `look` bị bỏ qua hoàn toàn.
+      this.pitch = dampTowards(this.pitch, cinematic.pitch, 3, dt);
+      this.distance = dampTowards(this.distance, cinematic.distance, 3, dt);
+      this.camera.fov = dampTowards(this.camera.fov, cinematic.fov, 3, dt);
+      this.camera.updateProjectionMatrix();
+
+      this.target.copy(this.cinematicTarget);
+    }
+
+    if (!cinematic) {
+      if (this.returnDistance !== undefined) {
+        this.distance = dampTowards(this.distance, this.returnDistance, 3, dt);
+
+        if (Math.abs(this.distance - this.returnDistance) < 0.05) {
+          this.returnDistance = undefined;
+        }
+      }
+
+      if (this.camera.fov !== this.baseFov) {
+        this.camera.fov = dampTowards(this.camera.fov, this.baseFov, 3, dt);
+        this.camera.updateProjectionMatrix();
+      }
+    }
+
+    if (!cinematic && this.followEnabled) {
       if (look.x !== 0) this.yaw -= look.x * this.options.sensitivity;
       if (look.y !== 0) this.pitch += look.y * this.options.sensitivity;
     }
@@ -254,4 +342,14 @@ export class CameraRig {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+/** Làm mượt độc lập tần số khung hình — cùng công thức với lớp nhân vật. */
+function dampTowards(
+  current: number,
+  target: number,
+  rate: number,
+  dt: number,
+): number {
+  return current + (target - current) * (1 - Math.exp(-rate * Math.max(0, dt)));
 }

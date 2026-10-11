@@ -6,6 +6,7 @@ import {
   DialogBox,
   GameHUD,
   Joystick,
+  KitePanel,
   StartScreen,
 } from "./components";
 import { gameEvents } from "./events";
@@ -15,10 +16,15 @@ import type { ChapterState } from "./components/ChapterCard";
 import type {
   DialogPayload,
   HudPayload,
+  KiteHudPayload,
+  KiteResultPayload,
 } from "./events";
 
 /** Thời gian thẻ chương nằm trên màn hình (ms) */
 const CHAPTER_CARD_MS = 4200;
+
+/** Thời gian bảng kết quả ván diều nằm trên màn hình (ms) */
+const KITE_RESULT_MS = 5200;
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -32,6 +38,10 @@ export default function App() {
   const [chapter, setChapter] = useState<ChapterState | undefined>();
 
   const [controls, setControls] = useState(false);
+
+  const [kite, setKite] = useState<KiteHudPayload | undefined>();
+
+  const [kiteResult, setKiteResult] = useState<KiteResultPayload | undefined>();
 
   // Dựng engine NGAY khi bấm Bắt đầu: một cú bấm là điều kiện để trình duyệt
   // cho phát âm thanh, nên thế giới chỉ khởi động sau đó.
@@ -54,6 +64,22 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [chapter]);
 
+  // Bảng kết quả ván diều tự tắt — cùng nhịp với thẻ chương, và cũng do đây
+  // quyết định chứ không nằm trong minigame: minigame không nên biết UI hiển
+  // thị bao lâu.
+  useEffect(() => {
+    if (!kiteResult) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(
+      () => setKiteResult(undefined),
+      KITE_RESULT_MS,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [kiteResult]);
+
   useEffect(() => {
     const offDialog = gameEvents.on("dialog", (data) => setDialog(data));
 
@@ -70,12 +96,23 @@ export default function App() {
       setControls(data.enabled),
     );
 
+    // Số liệu thả diều cũng là patch: minigame chỉ gửi phần đổi.
+    const offKite = gameEvents.on("kite", (data) =>
+      setKite((previous) => ({ ...previous, ...data })),
+    );
+
+    const offKiteResult = gameEvents.on("kiteResult", (data) =>
+      setKiteResult(data),
+    );
+
     return () => {
       offDialog();
       offClose();
       offHud();
       offChapter();
       offControls();
+      offKite();
+      offKiteResult();
     };
   }, []);
 
@@ -96,6 +133,8 @@ export default function App() {
       <ChapterCard card={chapter} />
 
       <Announce />
+
+      <KitePanel data={kite} result={kiteResult} />
 
       <Joystick />
 

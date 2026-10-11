@@ -8,6 +8,7 @@ import "./styles/theme.css";
 import "./styles/game.css";
 import "./styles/dialog.css";
 import "./styles/hub.css";
+import "./styles/kite.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
