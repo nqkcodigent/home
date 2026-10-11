@@ -118,3 +118,100 @@ describe("Character", () => {
     expect(character.root.visible).toBe(false);
   });
 });
+
+describe("Character — lớp hình thể", () => {
+  it("mắt chớp rồi mở lại, không kẹt ở trạng thái nhắm", () => {
+    const character = new Character({ variant: "player", x: 0, z: 0 });
+    const steps = Math.round(6 * 60);
+
+    let shuttered = 0;
+
+    for (let index = 0; index < steps; index += 1) {
+      character.update(IDLE, 0, 1 / 60, index / 60);
+
+      if (character.rig.eyes[0].scale.y < 0.9) shuttered += 1;
+    }
+
+    // Phải có chớp (nếu không thì mắt là mắt thuỷ tinh)…
+    expect(shuttered).toBeGreaterThan(0);
+
+    // …nhưng chỉ trong khoảnh khắc: một lần chớp 0,16 giây, cách nhau ~3 giây.
+    // Nếu ai đó xoá phép hồi phục thì con số này vọt lên bằng cả số frame.
+    expect(shuttered).toBeLessThan(steps * 0.2);
+  });
+
+  it("gối gập khi bước và không bao giờ gập ngược về sau", () => {
+    const character = new Character({ variant: "player", x: 0, z: 0 });
+
+    let deepest = 0;
+
+    for (let index = 0; index < 120; index += 1) {
+      character.update(
+        { forward: 1, right: 0, run: false },
+        0,
+        1 / 60,
+        index / 60,
+      );
+
+      const left = character.rig.kneeL.rotation.x;
+      const right = character.rig.kneeR.rotation.x;
+
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(right).toBeGreaterThanOrEqual(0);
+
+      deepest = Math.max(deepest, left, right);
+    }
+
+    expect(deepest).toBeGreaterThan(0.2);
+  });
+
+  it("khuỷu tay gập theo pha vung, không duỗi thẳng như thanh gỗ", () => {
+    const character = new Character({ variant: "player", x: 0, z: 0 });
+
+    for (let index = 0; index < 120; index += 1) {
+      character.update(
+        { forward: 1, right: 0, run: false },
+        0,
+        1 / 60,
+        index / 60,
+      );
+
+      expect(character.rig.elbowL.rotation.x).toBeLessThan(-0.1);
+      expect(character.rig.elbowR.rotation.x).toBeLessThan(-0.1);
+    }
+  });
+
+  it("chạy là một dáng khác, không chỉ là đi nhanh hơn", () => {
+    const walking = new Character({ variant: "player", x: 0, z: 0 });
+    const running = new Character({ variant: "player", x: 0, z: 0 });
+
+    tick(walking, 2, { forward: 1, right: 0, run: false });
+    tick(running, 2, { forward: 1, right: 0, run: true });
+
+    expect(running.speed).toBeGreaterThan(walking.speed);
+
+    // Người chúi về trước nhiều hơn khi chạy.
+    expect(running.rig.body.rotation.x).toBeGreaterThan(
+      walking.rig.body.rotation.x,
+    );
+  });
+
+  it("đứng yên thì vẫn thở: thân giãn ra co vào, chân về tư thế nghỉ", () => {
+    const character = new Character({ variant: "player", x: 0, z: 0 });
+
+    let lowest = Number.POSITIVE_INFINITY;
+    let highest = Number.NEGATIVE_INFINITY;
+
+    for (let index = 0; index < 300; index += 1) {
+      character.update(IDLE, 0, 1 / 60, index / 60);
+
+      const scale = character.rig.body.scale.y;
+
+      lowest = Math.min(lowest, scale);
+      highest = Math.max(highest, scale);
+    }
+
+    expect(highest - lowest).toBeGreaterThan(0.005);
+    expect(Math.abs(character.rig.legL.rotation.x)).toBeLessThan(0.02);
+  });
+});

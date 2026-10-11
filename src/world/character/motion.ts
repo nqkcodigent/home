@@ -85,6 +85,39 @@ export function shortestAngle(from: number, to: number): number {
 }
 
 /**
+ * Hệ số tiến về đích trong `dt` giây, với hằng số thời gian `1/rate`.
+ *
+ * Vì sao không dùng `lerp(current, target, k)` với k cố định: k là "phần trăm
+ * quãng đường mỗi frame", nên máy 144 fps hội tụ nhanh gấp 2,4 lần máy 60 fps.
+ * Cùng một dáng đi trông mượt trên máy khoẻ và giật trên máy yếu — đúng lỗi
+ * cũ của `Character.animate()`. `1 - exp(-rate·dt)` cho cùng một quỹ đạo bất kể
+ * frame dài bao nhiêu: đó là lấy mẫu lại của một đường cong liên tục.
+ */
+export function dampFactor(rate: number, dt: number): number {
+  return 1 - Math.exp(-Math.max(0, rate) * Math.max(0, dt));
+}
+
+/** Tiến `current` về `target` theo hàm mũ, độc lập tần số khung hình. */
+export function damp(
+  current: number,
+  target: number,
+  rate: number,
+  dt: number,
+): number {
+  return current + (target - current) * dampFactor(rate, dt);
+}
+
+/** Như `damp`, nhưng đi theo cung ngắn nhất — dùng cho góc (yaw). */
+export function dampAngle(
+  current: number,
+  target: number,
+  rate: number,
+  dt: number,
+): number {
+  return current + shortestAngle(current, target) * dampFactor(rate, dt);
+}
+
+/**
  * Hướng đi mong muốn, quy về hệ toạ độ thế giới theo `cameraYaw`.
  *
  * Quy ước three.js: camera nhìn về -Z khi yaw = 0, nên "tới trước" là
