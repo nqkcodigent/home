@@ -166,6 +166,10 @@ export class StoryDirector {
         if (!handlers.transition) throw missing();
         return handlers.transition(beat);
 
+      case "activity":
+        if (!handlers.activity) throw missing();
+        return handlers.activity(beat);
+
       default: {
         const unreachable: never = beat;
 

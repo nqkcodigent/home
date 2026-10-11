@@ -30,7 +30,22 @@ export type StoryBeat =
       volume?: number;
     }
   | { id?: string; type: "controls"; enabled: boolean }
-  | { id?: string; type: "transition"; scene: string; duration?: number };
+  | { id?: string; type: "transition"; scene: string; duration?: number }
+  /**
+   * Nhịp `activity` — giao quyền cho một trò chơi con trong thế giới (thả
+   * diều). Tên hoạt động khớp với bảng đăng ký của stage; stage nào không có
+   * trò đó thì lỗi nêu tên stage + beat, không im lặng bỏ qua.
+   *
+   * `duration` (ms) là trần thời gian; trò chơi vẫn có thể kết thúc sớm (dây
+   * đứt) và tự trả quyền lại. Nhịp này CHỜ tới lúc đó, nên `controls` sau nó
+   * luôn chạy đúng thứ tự.
+   */
+  | {
+      id?: string;
+      type: "activity";
+      activity: string;
+      duration?: number;
+    };
 
 export type StoryBeatType = StoryBeat["type"];
 
