@@ -33,6 +33,40 @@ export interface NoticePayload {
   hold?: number;
 }
 
+/**
+ * Bảng đo của một ván thả diều.
+ *
+ * Gửi theo dạng PATCH như `hud`: chỉ phần thay đổi, React trộn vào bảng cũ.
+ * Nhờ vậy minigame chỉ phát một sự kiện mỗi lần số liệu đổi (chứ không phải
+ * 60 lần mỗi giây), mà bảng vẫn luôn đúng.
+ */
+export interface KiteHudPayload {
+  visible: boolean;
+  phase?: "launch" | "flying" | "over";
+  /** Điểm hiện có */
+  score?: number;
+  /** Độ cao của diều (mét) */
+  altitude?: number;
+  /** Lực căng dây, 0…1 — gần 1 là sắp đứt */
+  tension?: number;
+  /** Sức gió, 0…1 */
+  wind?: number;
+  /** Hướng gió theo độ (0 = bắc) */
+  windDirection?: number;
+  /** Thời gian còn lại (giây) */
+  timeLeft?: number;
+  /** Số nhiệt lưu đã bắt được */
+  thermals?: number;
+}
+
+export interface KiteResultPayload {
+  outcome: "landed" | "snapped" | "timeout";
+  score: number;
+  bestAltitude: number;
+  title: string;
+  detail: string;
+}
+
 export interface GameEventMap {
   dialog: DialogPayload;
   dialogNext: undefined;
@@ -41,6 +75,8 @@ export interface GameEventMap {
   hud: HudPayload;
   chapter: ChapterPayload;
   notice: NoticePayload;
+  kite: KiteHudPayload;
+  kiteResult: KiteResultPayload | undefined;
 }
 
 type Handler<K extends keyof GameEventMap> = (payload: GameEventMap[K]) => void;

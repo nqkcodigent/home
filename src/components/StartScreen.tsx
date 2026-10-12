@@ -14,6 +14,10 @@ interface Props {
  * Không chỉ để đẹp: trình duyệt chặn phát âm thanh cho tới khi người dùng tương
  * tác, nên một cú bấm ở đây là thứ mở khoá toàn bộ tiếng dế, tiếng trống trường
  * và tiếng bước chân của cả trò chơi.
+ *
+ * Danh sách ba bước ở cuối không phải trang trí: người chơi cần biết trò chơi
+ * này có gì để làm TRƯỚC khi bấm Bắt đầu, nếu không thì cả một buổi chiều chỉ
+ * còn là đi lại trong sân.
  */
 export function StartScreen({ onStart }: Props) {
   const [device, setDevice] = useState(getInputDevice);
@@ -63,6 +67,17 @@ export function StartScreen({ onStart }: Props) {
           <span className="glyph glyph--key glyph--wide">Chuột</span>
           <span className="cover__controls-text">kéo để xoay</span>
         </div>
+
+        {/* Ba bước của buổi chiều — nói trước có gì để chơi, thay vì để người
+            chơi tự mò xem trò chơi này có gì. */}
+        <ol className="cover__steps">
+          <li>
+            Đi quanh sân, bấm <InputGlyph action="interact" /> ở chỗ sáng lên để
+            nhặt hồi ký.
+          </li>
+          <li>Ra bãi cỏ thả diều: kéo dây cho diều lên cao, đừng để dây đứt.</li>
+          <li>Nhặt đủ bốn hồi ký trong sân thì buổi chiều tự khép lại.</li>
+        </ol>
       </div>
     </div>
   );

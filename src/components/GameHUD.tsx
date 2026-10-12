@@ -28,6 +28,14 @@ export function GameHUD({ time, chapter, hint, memories, total }: Props) {
             <span>
               Hồi ký {memories}/{total}
             </span>
+            {/* Vạch tiến độ: "còn bao xa nữa" là câu hỏi người chơi tự hỏi
+                suốt buổi chiều, và hai con số thì phải tự trừ trong đầu. */}
+            <span className="hud__track" aria-hidden="true">
+              <span
+                className="hud__track-fill"
+                style={{ width: `${(memories / total) * 100}%` }}
+              />
+            </span>
           </div>
         )}
 

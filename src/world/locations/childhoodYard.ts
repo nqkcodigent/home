@@ -30,7 +30,7 @@ import type { LocationRuntime, WorldServices } from "./types";
  * thăm kéo dài đúng bằng một buổi chiều.
  */
 
-/** Ba điểm ký ức, giữ nguyên lời thoại của bản cũ. */
+/** Bốn điểm ký ức — ba dòng cũ, cộng cái ao ở góc sân đông. */
 const MEMORY_SPOTS = [
   {
     id: "well",
@@ -74,7 +74,62 @@ const MEMORY_SPOTS = [
       portrait: "friend",
     },
   },
+  {
+    id: "pond",
+    x: YARD.pond.x - 3.2,
+    z: YARD.pond.z + 1.6,
+    radius: 3.6,
+    label: "Cái ao",
+    payload: {
+      id: "memory-pond",
+      speaker: "Bạn",
+      text: "Mùa nước lên cả lũ ra đây bắt cá rô, ướt hết cả áo mà không đứa nào chịu về.",
+      emotion: "warm",
+      portrait: "child",
+    },
+  },
 ];
+
+/**
+ * Bãi cỏ trống — chỗ thả diều.
+ *
+ * Điểm này KHÔNG phải điểm ký ức: nó mở một trò chơi con (`activity: "kite"`),
+ * nên không tính vào số hồi ký và chơi lại lần nào cũng được. Chọn chỗ này vì
+ * nó trống đúng bốn hướng cần thiết: không cây, không nhà, không dây phơi.
+ */
+const KITE_SPOT = {
+  id: "kite",
+  x: 6,
+  z: 11,
+  radius: 3.2,
+  label: "Thả diều",
+  activity: "kite",
+} as const;
+
+/**
+ * Điểm kịch bản của sân — xuất ra ngoài để TEST đối chiếu với story.json.
+ *
+ * Nhịp `walk`/`pan` gọi điểm bằng TÊN; gõ sai một chữ thì lỗi chỉ nổ ra lúc
+ * người chơi tới đúng nhịp đó, giữa buổi chơi. Có bảng này thì test bắt được
+ * ngay lúc chạy `npm test`, và bảng cũng là chỗ duy nhất khai báo toạ độ.
+ */
+export const YARD_WALK_POINTS: Record<string, { x: number; z: number }> = {
+  gate: { x: YARD.gate.x, z: YARD.gate.z },
+  well: { x: YARD.well.x + 2.4, z: YARD.well.z + 1.6 },
+  house: { x: YARD.door.x, z: YARD.door.z },
+  yard: { x: 0.5, z: 6.5 },
+  kite: { x: KITE_SPOT.x - 0.4, z: KITE_SPOT.z - 1.2 },
+};
+
+export const YARD_PAN_POINTS: Record<
+  string,
+  { x: number; y: number; z: number }
+> = {
+  house: { x: YARD.house.x, y: 2.2, z: YARD.house.z },
+  well: { x: YARD.well.x, y: 1.6, z: YARD.well.z },
+  sky: { x: 0, y: 14, z: 24 },
+  yard: { x: 0, y: 1.2, z: 6 },
+};
 
 export function createChildhoodYard(services: WorldServices): LocationRuntime {
   const group = new THREE.Group();
@@ -201,25 +256,26 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
     story: "childhood",
     group,
     character,
-    spots: MEMORY_SPOTS,
-    walkPoints: {
-      gate: { x: YARD.gate.x, z: YARD.gate.z },
-      well: { x: YARD.well.x + 2.4, z: YARD.well.z + 1.6 },
-      house: { x: YARD.door.x, z: YARD.door.z },
-      yard: { x: 0.5, z: 6.5 },
+    spots: [...MEMORY_SPOTS, KITE_SPOT],
+    walkPoints: YARD_WALK_POINTS,
+    // Diều bay ra đằng sau hàng rào, về phía đông nam — hướng duy nhất trong
+    // sân không có mái nhà che khuất tầm nhìn.
+    kiteForward: { x: 0.34, z: 0.94 },
+    // Nhặt hết hồi ký rồi thì buổi chiều khép lại bằng câu này.
+    epilogue: {
+      id: "childhood-epilogue",
+      speaker: "Bạn",
+      text: "Nắng tắt sau rặng tre. Giá mà ngày mai mình vẫn còn được đứng ở đây.",
+      emotion: "nostalgic",
+      portrait: "child",
     },
-    panPoints: {
-      house: { x: YARD.house.x, y: 2.2, z: YARD.house.z },
-      well: { x: YARD.well.x, y: 1.6, z: YARD.well.z },
-      sky: { x: 0, y: 14, z: 24 },
-      yard: { x: 0, y: 1.2, z: 6 },
-    },
+    panPoints: YARD_PAN_POINTS,
     // Camera ở phía cổng (nam) nhìn vào nhà: cảnh mở đầu phải thấy mái ngói
     // trước khi thấy bất cứ thứ gì khác.
     rig: { distance: 7.4, height: 1.0, pitch: 0.36, yaw: 0 },
     // Gốc cây cao gần gấp đôi nhà nên nhãn phải nâng lên, nếu không nó nằm
     // trong thân cây.
-    badgeHeight: { well: 2.9, door: 2.6, tree: 4.3 },
+    badgeHeight: { well: 2.9, door: 2.6, tree: 4.3, pond: 2.4, kite: 2.6 },
     footstepSlot: "childFootsteps" as AudioSlot,
     spatialSources: {
       // Tiếng trống trường phải đến TỪ trường, không phải từ trong đầu người chơi.

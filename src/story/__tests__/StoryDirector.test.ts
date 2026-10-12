@@ -95,6 +95,13 @@ const scripts: StoryData = {
   morning: {
     scenes: [{ type: "dialog", speaker: "Bạn", text: "Chào buổi sáng." }],
   },
+
+  kite: {
+    scenes: [
+      { type: "activity", activity: "kite", duration: 45_000 },
+      { type: "controls", enabled: true },
+    ],
+  },
 };
 
 function makeStage() {
@@ -110,6 +117,10 @@ function makeStage() {
 
       transition: (beat) => {
         calls.push(`transition:${beat.scene}`);
+      },
+
+      activity: (beat) => {
+        calls.push(`activity:${beat.activity}`);
       },
     },
   };
@@ -215,6 +226,68 @@ describe("StoryDirector", () => {
 
     await expect(director.play("bad")).rejects.toThrow(
       /stage "LonelyStage" has no handler for beat "transition"/,
+    );
+  });
+
+  it("nhịp `activity` gọi đúng trò chơi con rồi mới đi tiếp", async () => {
+    const { director, calls } = makeDirector();
+
+    await director.play("kite");
+
+    expect(calls).toEqual(["activity:kite", "controls:true"]);
+  });
+
+  it("nhịp `activity` CHỜ trò chơi con kết thúc — không có soft-lock ngược", async () => {
+    const { emitter } = makeEmitter();
+
+    let release: (() => void) | undefined;
+
+    const director = new StoryDirector({
+      scripts: { kite: { scenes: [{ type: "activity", activity: "kite" }] } },
+      clock: { delay: () => Promise.resolve() },
+      emitter,
+    });
+
+    director.attachStage({
+      name: "SlowStage",
+      handlers: {
+        activity: () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      },
+    });
+
+    let done = false;
+    const finished = director.play("kite").then(() => {
+      done = true;
+    });
+
+    await flush();
+
+    expect(release).toBeTypeOf("function");
+    expect(done).toBe(false);
+
+    release?.();
+
+    await finished;
+
+    expect(done).toBe(true);
+  });
+
+  it("stage thiếu handler `activity` → lỗi nêu tên stage và beat", async () => {
+    const { emitter } = makeEmitter();
+
+    const director = new StoryDirector({
+      scripts: { kite: { scenes: [{ type: "activity", activity: "kite" }] } },
+      clock: { delay: () => Promise.resolve() },
+      emitter,
+    });
+
+    director.attachStage({ name: "NoActivities", handlers: {} });
+
+    await expect(director.play("kite")).rejects.toThrow(
+      /stage "NoActivities" has no handler for beat "activity"/,
     );
   });
 

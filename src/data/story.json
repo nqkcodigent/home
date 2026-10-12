@@ -86,6 +86,14 @@
         "portrait": "friend"
       },
       {
+        "id": "scene3",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Có một chiều thả diều, dây cước đứt, cả lũ chạy theo con diều mãi tới tối mịt.",
+        "emotion": "nostalgic",
+        "portrait": "child"
+      },
+      {
         "id": "want",
         "type": "dialog",
         "speaker": "Bạn",
@@ -240,6 +248,65 @@
         "speaker": "Bạn",
         "text": "Đi ngay! Khoan đã — đây là mơ hay thật vậy nhỉ?",
         "emotion": "confused",
+        "portrait": "child"
+      },
+
+      {
+        "id": "to_field",
+        "type": "walk",
+        "to": "kite",
+        "duration": 3200
+      },
+      {
+        "id": "friend3",
+        "type": "dialog",
+        "speaker": "???",
+        "text": "Đây rồi, bãi cỏ này gió mới đã. Cầm lấy, thả cho tôi xem với!",
+        "portrait": "friend"
+      },
+      {
+        "id": "prep",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Cước này hồi nhỏ mình cột bằng tay không. Cứng lắm, mà chắc.",
+        "emotion": "warm",
+        "portrait": "child"
+      },
+      {
+        "id": "rules",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Muốn lên cao thì phải thả dây dài... mà dây càng dài thì càng dễ đứt.",
+        "emotion": "nostalgic",
+        "portrait": "child"
+      },
+      {
+        "id": "kite_run",
+        "type": "activity",
+        "activity": "kite",
+        "duration": 45000
+      },
+      {
+        "id": "after_kite",
+        "type": "dialog",
+        "speaker": "???",
+        "text": "Trời ơi, lúc nãy nó lên tận đám mây rồi kìa! Chiều nào cũng thả nhé?",
+        "portrait": "friend"
+      },
+      {
+        "id": "after_kite2",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Ừ. Ước gì chiều nào cũng được đứng đây, tay dính cước, nghe sáo diều kêu.",
+        "emotion": "nostalgic",
+        "portrait": "child"
+      },
+      {
+        "id": "look_around",
+        "type": "dialog",
+        "speaker": "Bạn",
+        "text": "Đi một vòng cái sân này đã. Chỗ nào cũng có chuyện để nhớ.",
+        "emotion": "warm",
         "portrait": "child"
       },
       {

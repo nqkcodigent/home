@@ -1,0 +1,397 @@
+/* ============================================================
+   Thả diều — bảng điều khiển và bảng kết quả
+   ============================================================ */
+
+.kite {
+  position: absolute;
+  left: 50%;
+  bottom: max(20px, env(safe-area-inset-bottom, 0px));
+
+  transform: translateX(-50%);
+
+  width: min(46rem, calc(100% - 24px));
+  z-index: var(--z-hud);
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  padding: 14px 18px;
+
+  border-radius: var(--radius);
+  border: 1px solid var(--glass-line);
+
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.94) 0%,
+    rgba(240, 250, 246, 0.9) 100%
+  );
+
+  box-shadow: var(--fab-gloss), var(--shadow);
+  backdrop-filter: blur(6px);
+
+  animation: kiteIn 0.3s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+
+@keyframes kiteIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+
+.kite__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.kite__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  padding: 6px 13px;
+
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-line);
+  background: rgba(255, 255, 255, 0.86);
+
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.kite__icon {
+  width: 15px;
+  height: 15px;
+  color: var(--green-500);
+}
+
+.kite__pill--sky .kite__icon {
+  color: var(--blue);
+}
+
+.kite__pill--gold {
+  color: #a5761a;
+  background: linear-gradient(180deg, #fffdf3, #fff4d4);
+  border-color: rgba(224, 178, 61, 0.4);
+}
+
+.kite__pill--gold .kite__icon {
+  color: #e0a300;
+}
+
+.kite__pill--warm {
+  color: var(--clay);
+}
+
+.kite__pill--warm .kite__icon {
+  color: var(--clay);
+}
+
+/* ── Thanh lực căng: chỉ báo chính ──────────────────────────────────────── */
+
+.kite__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.kite__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.kite__label--wind {
+  margin-left: auto;
+}
+
+.kite__tension {
+  flex: 1 1 auto;
+  height: 14px;
+
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(86, 172, 132, 0.35);
+  background: rgba(215, 242, 228, 0.6);
+
+  overflow: hidden;
+}
+
+.kite__tension-fill {
+  display: block;
+  height: 100%;
+
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--green-400), var(--green-500));
+
+  transition:
+    width 0.1s linear,
+    background 0.2s ease;
+}
+
+/* Gần đứt: đổi hẳn sang đỏ và rung nhẹ — cảnh báo phải đọc được bằng mắt
+   thường, không cần nhìn số. */
+.kite__tension.is-danger {
+  border-color: rgba(224, 87, 63, 0.55);
+  background: rgba(255, 226, 219, 0.7);
+}
+
+.kite__tension.is-danger .kite__tension-fill {
+  background: linear-gradient(90deg, #ff9a5a, var(--red));
+  animation: tensionShiver 0.4s ease-in-out infinite;
+}
+
+@keyframes tensionShiver {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.72;
+  }
+}
+
+.kite__warning {
+  margin: 0;
+  text-align: center;
+
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--red);
+
+  animation: caretBlink 0.9s steps(1) infinite;
+}
+
+.kite__wind-arrow {
+  width: 16px;
+  height: 16px;
+  color: var(--green-500);
+  transition: transform 0.3s ease;
+}
+
+.kite__wind-meter {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.kite__wind-meter span {
+  width: 4px;
+  height: 11px;
+
+  border-radius: 2px;
+  background: rgba(65, 160, 110, 0.22);
+}
+
+.kite__wind-meter span.is-on {
+  background: var(--green-500);
+}
+
+/* ── Bảng hướng dẫn, chỉ hiện lúc mới vào ───────────────────────────────── */
+
+.kite__howto {
+  position: absolute;
+  left: 50%;
+  top: max(74px, env(safe-area-inset-top, 0px));
+
+  transform: translateX(-50%);
+
+  z-index: var(--z-hud);
+
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  padding: 12px 18px;
+
+  border-radius: var(--radius-sm);
+  background: rgba(35, 75, 58, 0.74);
+  color: #f4fff8;
+
+  font-size: 0.92rem;
+  font-weight: 700;
+
+  box-shadow: var(--shadow-soft);
+
+  animation:
+    hintIn 0.4s ease both,
+    hintOut 1s ease 8s forwards;
+}
+
+.kite__howto-title {
+  font-family: var(--font-title);
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.kite__howto kbd {
+  display: inline-grid;
+  place-items: center;
+
+  min-width: 22px;
+  height: 22px;
+  margin: 0 4px;
+
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* ── Bảng kết quả ───────────────────────────────────────────────────────── */
+
+.kite-result {
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-hud) + 4);
+
+  display: grid;
+  place-items: center;
+
+  pointer-events: none;
+}
+
+.kite-result__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+
+  max-width: min(34rem, calc(100% - 32px));
+  padding: 24px 30px;
+
+  text-align: center;
+
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(244, 252, 248, 0.92) 100%
+  );
+
+  box-shadow: var(--fab-gloss), var(--shadow);
+  backdrop-filter: blur(6px);
+
+  animation: kiteResultIn 5s ease both;
+}
+
+@keyframes kiteResultIn {
+  0% {
+    opacity: 0;
+    transform: translateY(24px) scale(0.95);
+  }
+
+  8% {
+    opacity: 1;
+    transform: none;
+  }
+
+  88% {
+    opacity: 1;
+    transform: none;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-14px) scale(1.01);
+  }
+}
+
+.kite-result__badge {
+  padding: 4px 14px;
+
+  border-radius: var(--radius-pill);
+  background: var(--green-100);
+  color: var(--green-500);
+
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.kite-result--snapped .kite-result__badge {
+  background: #ffe2db;
+  color: #c2452c;
+}
+
+.kite-result--timeout .kite-result__badge {
+  background: #ffeec6;
+  color: #a5761a;
+}
+
+.kite-result__title {
+  margin: 0;
+
+  font-family: var(--font-title);
+  font-size: clamp(1.7rem, 4.4vw, 2.4rem);
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.kite-result__detail {
+  margin: 0;
+  max-width: 30rem;
+
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.kite-result__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  margin-top: 4px;
+}
+
+.kite-result__score-value {
+  font-family: var(--font-title);
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+
+  color: #e0a300;
+}
+
+.kite-result__score-label {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 720px) {
+  .kite {
+    padding: 11px 13px;
+  }
+
+  .kite__pill {
+    font-size: 0.85rem;
+    padding: 5px 10px;
+  }
+
+  .kite__label {
+    letter-spacing: 0.08em;
+  }
+}

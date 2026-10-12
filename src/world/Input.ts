@@ -51,6 +51,9 @@ export class Input {
 
   private zoom = 0;
 
+  /** Quãng kéo chuột theo trục dọc, giữ riêng cho việc kéo/thả dây diều. */
+  private dragY = 0;
+
   private interactQueued = false;
 
   private pauseQueued = false;
@@ -181,6 +184,36 @@ export class Input {
     return delta;
   }
 
+  /**
+   * Trục điều khiển diều: kéo/thả dây và lạng ngang.
+   *
+   * Tách hẳn khỏi `snapshot()` vì lúc thả diều thì `snapshot()` đã bị khoá
+   * (`setMuted`) — người chơi không đi lại nữa, nhưng vẫn phải kéo dây. Cùng
+   * một bộ phím, đọc theo hai nghĩa khác nhau tuỳ trò chơi đang chạy: lên/xuống
+   * là thả/thu dây, trái/phải là lạng, và kéo chuột xuống cũng là thu dây.
+   */
+  kiteInput(): { reel: number; steer: number } {
+    let forward = 0;
+    let right = 0;
+
+    for (const code of this.held) {
+      if (FORWARD_KEYS.has(code)) forward += 1;
+      if (BACK_KEYS.has(code)) forward -= 1;
+      if (RIGHT_KEYS.has(code)) right += 1;
+      if (LEFT_KEYS.has(code)) right -= 1;
+    }
+
+    const drag = this.dragY * 0.02;
+
+    this.dragY = 0;
+
+    return {
+      // Kéo chuột xuống (hoặc đẩy cần xuống) là thu dây vào.
+      reel: clamp(-forward - this.stick.forward + drag),
+      steer: clamp(right + this.stick.right),
+    };
+  }
+
   /** true nếu trong frame này người chơi bấm phím tương tác. */
   consumeInteract(): boolean {
     const pressed = this.interactQueued;
@@ -256,6 +289,7 @@ export class Input {
 
     this.lookX += event.clientX - this.lastPointer.x;
     this.lookY += event.clientY - this.lastPointer.y;
+    this.dragY += event.clientY - this.lastPointer.y;
 
     this.lastPointer = { x: event.clientX, y: event.clientY };
   }

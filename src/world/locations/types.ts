@@ -60,7 +60,18 @@ export interface LocationRuntime {
   rig: RigPreset;
   /** Độ cao đặt nhãn tương tác cho từng điểm (mặc định 2,4 m) */
   badgeHeight?: Record<string, number>;
+  /**
+   * Lời kết của bối cảnh, đọc lên MỘT lần khi người chơi đã nhặt hết hồi ký.
+   * Đây là chỗ chương khép lại — không phải nhịp truyện, vì nó phụ thuộc vào
+   * việc người chơi đã đi hết sân hay chưa.
+   */
+  epilogue?: StoryLine;
   footstepSlot: AudioSlot;
+  /**
+   * Hướng thả diều trong bối cảnh này (mặt phẳng XZ). Diều phải bay ra chỗ
+   * trống — hướng đó là chuyện của sân, không phải chuyện của minigame.
+   */
+  kiteForward?: { x: number; z: number };
   /** Nguồn âm thanh có vị trí (tiếng trống trường vọng từ xa) */
   spatialSources?: Partial<Record<AudioSlot, { x: number; y: number; z: number }>>;
   /** Vài bối cảnh cần một chút chuyển động riêng (cây đung đưa, mây trôi) */
