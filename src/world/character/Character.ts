@@ -21,11 +21,11 @@ import type { Bounds, Obstacle } from "../physics/collide";
  *
  * Ba việc, tách hẳn nhau:
  *  1. Động học: `stepMotion()` lo (thuần), lớp này chỉ áp kết quả.
- *  2. Va chạm + bám địa hình: đẩy khỏi vật thể, đặt `y` theo `terrainHeight`.
- *  3. Hình thể: tay/chân/thân theo `gaitPhase`, người đứng thì thở.
- *
- * Ngoài ra có hai chế độ chỉnh bởi nhịp truyện: `walkTo()` (đi theo kịch bản,
- * bỏ qua input) và `setOpacity()` (hiện dần khi "thức dậy").
+ *  2. Va chạm + bám nền: đẩy khỏi vật thể, đặt `y` theo `groundHeight` — mặt
+ *     đất ngoài sân, mặt sàn trong nhà.
+ *  3. Hình thể: tay/chân/thân theo `gaitPhase`, người đứng thì thở, và một
+ *     lớp hành động (`perform`) blend chồng lên mọi dáng: với tay mở cửa, kéo
+ *     dây thu diều.
  *
  * ── Vì sao lớp hình thể viết lại ───────────────────────────────────────────
  * Bản trước trộn mọi thứ vào một `walkBlend` và làm mượt bằng
@@ -47,17 +47,37 @@ export interface CharacterOptions {
   radius?: number;
   /** Hệ số nhân độ cao — để hạ nhân vật xuống nếu cần */
   heightOffset?: number;
+  /**
+   * Độ cao mặt nền tại (x, z). Mặc định là `terrainHeight`; thế giới có nhà
+   * thì truyền hàm biết cả mặt sàn — nếu không chân sẽ lún xuống sàn nhà.
+   */
+  groundHeight?: (x: number, z: number) => number;
 }
 
-interface ScriptedWalk {
-  fromX: number;
-  fromZ: number;
-  toX: number;
-  toZ: number;
-  /** giây đã trôi qua */
+/** Chỗ ngồi — toạ độ thế giới; `height` là độ cao MẶT GHẾ (mét). */
+export interface Seat {
+  x: number;
+  z: number;
+  /** Hướng mặt khi ngồi */
+  yaw: number;
+  height: number;
+}
+
+interface SeatState extends Seat {
+  phase: "approach" | "seated" | "leaving";
+  /** Giải quyết khi đã ngồi xuống (approach) hoặc đã đứng hẳn dậy (leaving) */
+  resolve?: () => void;
+}
+
+/** Hành động chồng lên dáng đi — xem `perform()`. */
+export type CharacterAction = "reach" | "reel";
+
+interface ActiveAction {
+  kind: CharacterAction;
   elapsed: number;
-  /** tổng thời lượng, GIÂY */
   duration: number;
+  contactAt: number;
+  onContact?: () => void;
   resolve: () => void;
 }
 
@@ -79,9 +99,28 @@ interface CharacterAnim {
   blinks: number;
   /** Yaw frame trước, để suy ra tốc độ rẽ */
   lastYaw: number;
+  /** Trọng số lớp hành động (0 … 1), blend vào/ra như dáng đi */
+  act: number;
+  /** Hành động gần nhất — vẫn giữ tư thế của nó trong lúc blend ra */
+  actKind: CharacterAction;
+  /** Tiến độ 0 … 1 của hành động gần nhất */
+  actProgress: number;
+  /** Trọng số dáng ngồi (0 đứng … 1 ngồi hẳn) */
+  sit: number;
 }
 
-const ARRIVE_EPSILON = 0.02;
+/** Tốc độ blend vào/ra của lớp hành động (1/giây). */
+const ACT_IN = 12;
+const ACT_OUT = 7;
+
+/** Tốc độ ngồi xuống / đứng dậy (1/giây) — đủ chậm để thấy rõ người hạ xuống. */
+const SIT_RATE = 4.2;
+
+/** Hông nhấc thêm ngần này trên mặt ghế để đùi nằm TRÊN ghế, không xuyên. */
+const SIT_LIFT = 0.07;
+
+/** Tốc độ chân bám theo bậc nền — đủ nhanh để không trôi, đủ êm để lên bậc. */
+const FOOT_RATE = 22;
 
 /** Một lần chớp mắt kéo dài bao lâu (giây) và mắt khép hờ tới đâu. */
 const BLINK_SECONDS = 0.16;
@@ -100,11 +139,6 @@ export class Character {
   > &
     CharacterOptions;
 
-  /** Nhịp đi hiện tại theo kịch bản, nếu có. */
-  get scriptedWalk(): boolean {
-    return this.script !== undefined;
-  }
-
   protected state: MotionState;
 
   private obstacles: readonly Obstacle[];
@@ -113,9 +147,17 @@ export class Character {
 
   private readonly anim: CharacterAnim;
 
-  private opacity = 1;
+  private action: ActiveAction | undefined;
 
-  private script: ScriptedWalk | undefined;
+  private readonly ground: (x: number, z: number) => number;
+
+  /** Độ cao chân đã làm mượt — lên bậc thềm không giật cục. */
+  private footY: number;
+
+  /** Hướng cần quay về trong lúc làm hành động (xem `face()`). */
+  private faceYaw: number | undefined;
+
+  private seat: SeatState | undefined;
 
   constructor(options: CharacterOptions) {
     this.options = {
@@ -126,6 +168,8 @@ export class Character {
 
     this.obstacles = options.obstacles ?? [];
     this.bounds = options.bounds;
+    this.ground = options.groundHeight ?? terrainHeight;
+    this.footY = this.ground(options.x, options.z);
 
     this.rig = createAvatar(options.variant);
 
@@ -141,10 +185,14 @@ export class Character {
       blink: 0,
       blinks: 0,
       lastYaw: options.yaw ?? 0,
+      act: 0,
+      actKind: "reach",
+      actProgress: 0,
+      sit: 0,
     };
 
     this.root.add(this.rig.root);
-    this.root.position.set(options.x, terrainHeight(options.x, options.z), options.z);
+    this.root.position.set(options.x, this.footY + this.options.heightOffset, options.z);
     this.root.rotation.y = this.state.yaw;
   }
 
@@ -161,73 +209,187 @@ export class Character {
     this.bounds = bounds;
   }
 
-  setOpacity(value: number) {
-    this.opacity = Math.min(1, Math.max(0, value));
-
-    for (const material of this.rig.materials) {
-      material.transparent = this.opacity < 1;
-      material.opacity = this.opacity;
-      // Trong suốt thì không nên ghi depth, nếu không sẽ thấy viền răng cưa.
-      material.depthWrite = this.opacity >= 1;
-    }
-
-    this.root.visible = this.opacity > 0.01;
-  }
-
   teleport(x: number, z: number, yaw?: number) {
     this.state = { ...this.state, x, z, speed: 0, yaw: yaw ?? this.state.yaw };
     this.anim.lastYaw = this.state.yaw;
-    this.root.position.set(x, terrainHeight(x, z), z);
-    this.root.rotation.y = this.state.yaw;
+    this.footY = this.ground(x, z);
+    this.applyTransform(0);
   }
 
-  /** Dừng lại ngay — dùng khi nhịp `controls: false` cắt ngang lúc đang chạy. */
+  /** Dừng lại ngay — dùng khi điều khiển bị khoá giữa lúc đang chạy. */
   halt() {
     this.state = { ...this.state, speed: 0 };
   }
 
-  resume() {
-    this.script = undefined;
+  /** Đang ngồi, đang đi tới ghế, hoặc đang đứng dậy. */
+  get seated(): boolean {
+    return this.seat !== undefined;
   }
 
   /**
-   * Đi theo kịch bản tới một điểm, hết `seconds` thì trả promise.
+   * Đi tới ghế rồi ngồi xuống. Trả promise khi đã tới ghế và bắt đầu ngồi.
    *
-   * Nhịp `walk` trong story.json kèm thời lượng, nên chuyển động được nội suy
-   * theo thời lượng đó chứ không theo tốc độ — nhịp thơ mới khớp với lời thoại.
-   *
-   * ĐƠN VỊ LÀ GIÂY (khớp `dt` của vòng lặp frame); story.json dùng mili-giây,
-   * nên bên gọi phải đổi. Trộn hai đơn vị ở đây từng làm một cú đi bộ 1,8 giây
-   * biến thành 1.800 giây.
+   * Không phải dịch chuyển tức thì: nhân vật BƯỚC tới bằng đúng dáng đi bộ,
+   * quay người về hướng ghế, rồi hạ người xuống — như người thật ngồi xuống.
    */
-  walkTo(x: number, z: number, seconds: number): Promise<void> {
-    if (seconds <= 0) {
-      this.teleport(x, z, this.state.yaw);
-
-      return Promise.resolve();
-    }
+  sit(seat: Seat): Promise<void> {
+    this.seat?.resolve?.();
 
     return new Promise<void>((resolve) => {
-      this.script = {
-        fromX: this.state.x,
-        fromZ: this.state.z,
-        toX: x,
-        toZ: z,
+      this.seat = { ...seat, phase: "approach", resolve };
+    });
+  }
+
+  /** Đứng dậy khỏi ghế. Trả promise khi đã đứng hẳn và đi lại được. */
+  standUp(): Promise<void> {
+    const seat = this.seat;
+
+    if (!seat) return Promise.resolve();
+
+    seat.resolve?.();
+
+    return new Promise<void>((resolve) => {
+      seat.phase = "leaving";
+      seat.resolve = resolve;
+    });
+  }
+
+  /** Quay mặt về một điểm — xoay mượt trong lúc làm hành động kế tiếp. */
+  face(x: number, z: number) {
+    const dx = x - this.state.x;
+    const dz = z - this.state.z;
+
+    if (Math.hypot(dx, dz) > 1e-3) this.faceYaw = Math.atan2(dx, dz);
+  }
+
+  /** Đang làm dở một hành động (với tay, thu dây). */
+  get busy(): boolean {
+    return this.action !== undefined;
+  }
+
+  /**
+   * Làm một hành động trong `seconds` giây, blend chồng lên dáng hiện tại.
+   *
+   * `onContact` chạy ở thời điểm `contactAt` (0 … 1) — lúc tay CHẠM tới đồ
+   * vật — để cánh cửa bắt đầu mở đúng lúc bàn tay đẩy vào, không sớm hơn.
+   * Hành động mới thay hành động cũ: hành động cũ vẫn được giải quyết, và
+   * `onContact` của nó vẫn chạy nếu chưa kịp, để không đồ vật nào kẹt nửa vời.
+   */
+  perform(
+    kind: CharacterAction,
+    seconds: number,
+    onContact?: () => void,
+    contactAt = 0.5,
+  ): Promise<void> {
+    this.finishAction();
+
+    return new Promise<void>((resolve) => {
+      this.action = {
+        kind,
         elapsed: 0,
-        duration: seconds,
+        duration: Math.max(seconds, 1e-3),
+        contactAt,
+        onContact,
         resolve,
       };
+
+      this.anim.actKind = kind;
+      this.anim.actProgress = 0;
     });
   }
 
   update(input: MotionInput, cameraYaw: number, dt: number, elapsed: number) {
-    if (this.script) {
-      this.updateScript(dt);
-    } else {
-      this.updateInput(input, cameraYaw, dt);
+    if (this.seat) this.updateSeat(dt);
+    else this.updateInput(input, cameraYaw, dt);
+    this.updateAction(dt);
+    this.animate(dt, elapsed);
+  }
+
+  private updateAction(dt: number) {
+    const action = this.action;
+
+    if (!action) return;
+
+    action.elapsed += dt;
+
+    if (this.faceYaw !== undefined) {
+      this.state = { ...this.state, yaw: dampAngle(this.state.yaw, this.faceYaw, 10, dt) };
+      this.root.rotation.y = this.state.yaw;
     }
 
-    this.animate(dt, elapsed);
+    const progress = Math.min(action.elapsed / action.duration, 1);
+
+    this.anim.actProgress = progress;
+
+    if (progress >= action.contactAt && action.onContact) {
+      const contact = action.onContact;
+
+      action.onContact = undefined;
+      contact();
+    }
+
+    if (progress >= 1) this.finishAction();
+  }
+
+  private finishAction() {
+    const action = this.action;
+
+    if (!action) return;
+
+    this.action = undefined;
+    this.faceYaw = undefined;
+    action.onContact?.();
+    action.resolve();
+  }
+
+  /** Đi tới ghế (bỏ qua va chạm — ghế nằm sát bàn), rồi ngồi, rồi đứng dậy. */
+  private updateSeat(dt: number) {
+    const seat = this.seat;
+
+    if (!seat) return;
+
+    if (seat.phase === "approach") {
+      const dx = seat.x - this.state.x;
+      const dz = seat.z - this.state.z;
+      const distance = Math.hypot(dx, dz);
+      const step = Math.min(distance, DEFAULT_MOTION.walkSpeed * 0.8 * dt);
+
+      // Còn xa thì nhìn về phía ghế mà đi; tới sát rồi thì xoay về hướng ngồi.
+      const heading = distance > 0.25 ? Math.atan2(dx, dz) : seat.yaw;
+
+      this.state = {
+        x: this.state.x + (distance > 1e-6 ? (dx / distance) * step : 0),
+        z: this.state.z + (distance > 1e-6 ? (dz / distance) * step : 0),
+        yaw: dampAngle(this.state.yaw, heading, 9, dt),
+        speed: dt > 0 ? step / dt : 0,
+        gaitPhase: (this.state.gaitPhase + step * DEFAULT_MOTION.stridesPerMetre) % 1,
+      };
+
+      const facing = Math.abs(shortestAngle(this.state.yaw, seat.yaw)) < 0.08;
+
+      if (distance < 0.02 && facing) {
+        this.state = { ...this.state, speed: 0 };
+        seat.phase = "seated";
+
+        const resolve = seat.resolve;
+
+        seat.resolve = undefined;
+        resolve?.();
+      }
+    } else {
+      this.state = {
+        ...this.state,
+        speed: 0,
+        yaw: dampAngle(this.state.yaw, seat.yaw, 9, dt),
+      };
+
+      if (seat.phase === "leaving" && this.anim.sit < 0.04) {
+        this.seat = undefined;
+        seat.resolve?.();
+      }
+    }
+
+    this.applyTransform(dt);
   }
 
   private updateInput(input: MotionInput, cameraYaw: number, dt: number) {
@@ -252,51 +414,17 @@ export class Character {
       speed: blocked ? step.state.speed * 0.4 : step.state.speed,
     };
 
-    this.applyTransform();
+    this.applyTransform(dt);
   }
 
-  private updateScript(dt: number) {
-    const script = this.script;
+  private applyTransform(dt: number) {
+    const ground = this.ground(this.state.x, this.state.z);
 
-    if (!script) return;
+    this.footY = dt > 0 ? damp(this.footY, ground, FOOT_RATE, dt) : ground;
 
-    script.elapsed += dt;
-
-    const raw = Math.min(script.elapsed / script.duration, 1);
-    // Vào và ra êm: người đi bộ không tăng tốc tức thì.
-    const t = raw * raw * (3 - 2 * raw);
-
-    const x = script.fromX + (script.toX - script.fromX) * t;
-    const z = script.fromZ + (script.toZ - script.fromZ) * t;
-
-    const dx = x - this.state.x;
-    const dz = z - this.state.z;
-    const distance = Math.hypot(dx, dz);
-
-    const targetYaw = distance > 1e-4 ? Math.atan2(dx, dz) : this.state.yaw;
-
-    this.state = {
-      x,
-      z,
-      // Xoay theo hàm mũ thay vì `dt × 7`: cùng một cú quay cho mọi fps.
-      yaw: dampAngle(this.state.yaw, targetYaw, 8, dt),
-      speed: script.duration > 0 ? distance / dt : 0,
-      gaitPhase: (this.state.gaitPhase + distance * DEFAULT_MOTION.stridesPerMetre) % 1,
-    };
-
-    this.applyTransform();
-
-    if (raw >= 1 || Math.hypot(script.toX - x, script.toZ - z) <= ARRIVE_EPSILON) {
-      this.script = undefined;
-      this.state = { ...this.state, speed: 0 };
-      script.resolve();
-    }
-  }
-
-  private applyTransform() {
     this.root.position.set(
       this.state.x,
-      terrainHeight(this.state.x, this.state.z) + this.options.heightOffset,
+      this.footY + this.options.heightOffset,
       this.state.z,
     );
 
@@ -396,7 +524,110 @@ export class Character {
       -blend * (0.05 + run * 0.05) + idle * Math.sin(elapsed * 1.7) * 0.02;
     this.rig.head.rotation.z = -this.rig.body.rotation.z * 0.6;
 
+    // Đuôi khăn: rủ xuống khi đứng, bay ra sau theo tốc độ và phần phật nhẹ.
+    if (this.rig.scarfTail) {
+      this.rig.scarfTail.rotation.x =
+        0.08 +
+        speedRatio * 0.95 * blend +
+        Math.sin(elapsed * (4 + speedRatio * 9)) * (0.03 + speedRatio * 0.12) +
+        idle * Math.sin(elapsed * 1.1) * 0.03;
+      this.rig.scarfTail.rotation.z = Math.sin(elapsed * 2.3) * 0.05 * (0.3 + speedRatio);
+    }
+
+    this.applySitPose(dt, elapsed);
+    this.applyActionPose(dt, elapsed);
+
     this.updateBlink(dt);
+  }
+
+  /**
+   * Dáng ngồi: hông hạ xuống mặt ghế, đùi gập ra trước, cẳng chân thõng
+   * xuống, hai tay đặt lên đùi, đầu thong thả ngó ra cảnh. Blend bằng `damp()`
+   * như mọi lớp khác, nên ngồi xuống và đứng dậy là chuyển động liên tục.
+   */
+  private applySitPose(dt: number, elapsed: number) {
+    const seat = this.seat;
+    const target = seat && seat.phase === "seated" ? 1 : 0;
+
+    this.anim.sit = damp(this.anim.sit, target, SIT_RATE, dt);
+
+    const weight = this.anim.sit;
+
+    if (weight < 1e-3 || !seat) return;
+
+    const rig = this.rig;
+    const mix = (from: number, to: number) => from + (to - from) * weight;
+
+    // Mặt ghế so với chân, trừ đi độ cao hông: rig hạ/nhấc đúng chừng đó.
+    const hipY = rig.legL.position.y;
+    const lift = seat.height - this.footY - hipY + SIT_LIFT;
+
+    rig.root.position.y = mix(rig.root.position.y, lift);
+
+    for (const [leg, knee] of [
+      [rig.legL, rig.kneeL],
+      [rig.legR, rig.kneeR],
+    ] as const) {
+      leg.rotation.x = mix(leg.rotation.x, -1.48);
+      knee.rotation.x = mix(knee.rotation.x, 1.32);
+    }
+
+    // Đung đưa chân rất khẽ, lệch pha hai bên — trẻ con ngồi ghế cao thì thế.
+    const dangle = Math.sin(elapsed * 1.6) * 0.09 * weight;
+
+    rig.kneeL.rotation.x += dangle;
+    rig.kneeR.rotation.x -= dangle;
+
+    rig.armL.rotation.x = mix(rig.armL.rotation.x, -0.55);
+    rig.armR.rotation.x = mix(rig.armR.rotation.x, -0.55);
+    rig.elbowL.rotation.x = mix(rig.elbowL.rotation.x, -0.75);
+    rig.elbowR.rotation.x = mix(rig.elbowR.rotation.x, -0.75);
+
+    rig.body.rotation.x = mix(rig.body.rotation.x, -0.06);
+    rig.body.rotation.z = mix(rig.body.rotation.z, 0);
+    rig.head.rotation.x = mix(rig.head.rotation.x, -0.12 + Math.sin(elapsed * 0.4) * 0.04);
+    rig.head.rotation.y = mix(rig.head.rotation.y, Math.sin(elapsed * 0.27) * 0.32);
+  }
+
+  /**
+   * Lớp hành động: kéo từng khớp từ dáng hiện tại (đứng/đi/chạy) về tư thế của
+   * hành động theo trọng số `act`. Vì `act` đi qua `damp()` giống `walk`/`run`,
+   * chuyển Idle → Walk → Interact và ngược lại đều là blend liên tục, không
+   * có khung hình nào nhảy tư thế.
+   */
+  private applyActionPose(dt: number, elapsed: number) {
+    const active = this.action !== undefined;
+
+    this.anim.act = damp(this.anim.act, active ? 1 : 0, active ? ACT_IN : ACT_OUT, dt);
+
+    const weight = this.anim.act;
+
+    if (weight < 1e-3) return;
+
+    const rig = this.rig;
+    const t = this.anim.actProgress;
+    const mix = (from: number, to: number) => from + (to - from) * weight;
+
+    if (this.anim.actKind === "reach") {
+      // Với tay phải ra trước, đẩy nhẹ ở giữa động tác rồi thu về.
+      const push = Math.sin(Math.PI * t);
+
+      rig.armR.rotation.x = mix(rig.armR.rotation.x, -1.05 - push * 0.35);
+      rig.elbowR.rotation.x = mix(rig.elbowR.rotation.x, -0.55 + push * 0.4);
+      rig.armL.rotation.x = mix(rig.armL.rotation.x, 0.12);
+      rig.body.rotation.x = mix(rig.body.rotation.x, 0.05 + push * 0.08);
+      rig.head.rotation.x = mix(rig.head.rotation.x, 0.08);
+    } else {
+      // Thu diều: hai tay ra trước, khuỷu gập, kéo dây tay nọ nối tay kia.
+      const pull = Math.sin(elapsed * 10);
+
+      rig.armL.rotation.x = mix(rig.armL.rotation.x, -0.95 + pull * 0.3);
+      rig.armR.rotation.x = mix(rig.armR.rotation.x, -0.95 - pull * 0.3);
+      rig.elbowL.rotation.x = mix(rig.elbowL.rotation.x, -1.05 - Math.max(0, pull) * 0.35);
+      rig.elbowR.rotation.x = mix(rig.elbowR.rotation.x, -1.05 - Math.max(0, -pull) * 0.35);
+      rig.body.rotation.x = mix(rig.body.rotation.x, -0.08);
+      rig.head.rotation.x = mix(rig.head.rotation.x, -0.22);
+    }
   }
 
   /**

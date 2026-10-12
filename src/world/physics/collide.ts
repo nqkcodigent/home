@@ -57,6 +57,31 @@ function clampToBounds(
 }
 
 /**
+ * Đưa một chùm vật cản từ toạ độ CỤC BỘ sang toạ độ thế giới.
+ *
+ * Vì sao cần: vật thể có hình khối riêng của nó (ngôi nhà được dựng ở gốc toạ
+ * độ của chính nó, rồi mới đặt xuống sân và xoay một chút cho tự nhiên), nên
+ * phần va chạm phải đi qua ĐÚNG phép biến đổi đó. Chép tay toạ độ đã xoay là
+ * lỗi chờ sẵn: sửa độ xoay ở một chỗ là tường chặn lệch ở chỗ kia, và triệu
+ * chứng duy nhất là "đi xuyên được qua tường nhà".
+ */
+export function rotateObstacles(
+  obstacles: readonly Obstacle[],
+  place: { x: number; z: number; rotation: number },
+): Obstacle[] {
+  const cos = Math.cos(place.rotation);
+  const sin = Math.sin(place.rotation);
+
+  return obstacles.map((obstacle) => ({
+    radius: obstacle.radius,
+    // Xoay quanh trục Y rồi dịch — cùng thứ tự với `Object3D.rotation` +
+    // `Object3D.position` của three.js.
+    x: place.x + obstacle.x * cos + obstacle.z * sin,
+    z: place.z - obstacle.x * sin + obstacle.z * cos,
+  }));
+}
+
+/**
  * Đẩy (x, z) ra khỏi mọi vật thể mà bán kính `radius` đang chồng lên.
  * Không có va chạm thì trả về đúng vị trí ban đầu.
  */

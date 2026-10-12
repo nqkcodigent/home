@@ -14,8 +14,16 @@ export type Vec2 = readonly [x: number, z: number];
 export const YARD = {
   house: { x: -3, z: -10.5 },
 
-  /** Chỗ đứng trước cửa — điểm ký ức "Cửa nhà" */
-  door: { x: -3, z: -2.4 },
+  /**
+   * Chỗ đứng NGAY TRƯỚC CỬA — điểm ký ức "Cửa nhà", và cũng là đầu của lối
+   * đi đất.
+   *
+   * Cửa nhà nằm lệch sang trái mặt tiền (xem `HOUSE.doorFrom` trong Props), nên
+   * điểm này phải nằm trước đúng cái cửa đó. Bản trước để nó ở giữa mặt tiền
+   * vì cả ngôi nhà là một khối đặc — người chơi đứng cách cửa năm mét mà game
+   * vẫn nói là "cửa nhà".
+   */
+  door: { x: -4.4, z: -6.6 },
 
   well: { x: 9.5, z: 3.5 },
 
@@ -32,7 +40,7 @@ export const YARD = {
 
   /** Lối đi đất chính: từ cửa nhà ra tới cổng */
   path: [
-    { x: -3, z: -2.4 },
+    { x: -4.4, z: -6.6 },
     { x: -2.2, z: 3 },
     { x: 0.4, z: 9.5 },
     { x: 0, z: 17.5 },

@@ -8,58 +8,39 @@ import { Engine } from "./Engine";
 import { HowlerAudio } from "./audio/HowlerAudio";
 import { Input } from "./Input";
 import { Tweens } from "./Tween";
-import { createStoryAudioHandler } from "./audio/storyAudio";
-import { createAdultRoom } from "./locations/adultRoom";
+import { HELP_LINES, readLines } from "./help";
 import { createChildhoodYard } from "./locations/childhoodYard";
 import { disposeObject } from "./world/dispose";
 import { findActiveSpot } from "./interact/spots";
 import { gameEvents } from "../events";
-import { playSfx } from "../ui/sfx";
 import { setInputDevice } from "../ui/device";
-import { storyDirector } from "../story/director";
 
-import type { AudioSlot } from "./audio/HowlerAudio";
-import type { BeatOfType } from "../story/types";
-import type { StageHandlers } from "../story/StoryDirector";
 import type { FrameInfo } from "./Engine";
-import type { LocationBuilder, LocationRuntime, WorldServices } from "./locations/types";
+import type { LocationRuntime } from "./locations/types";
 import type { Spot } from "./interact/spots";
-import type { StoryLine } from "../story/StoryDirector";
+import type { SeatView, SpotData } from "./locations/childhoodYard";
+import type { CameraShot } from "./CameraRig";
 
 /**
  * WorldGame — bộ máy của trò chơi.
  *
- * Giữ ĐÚNG một bản của mọi logic dùng chung: vào/đổi bối cảnh, nhịp truyện,
- * điểm ký ức, camera, âm thanh, hiệu ứng giấc mơ. Bối cảnh (sân tuổi thơ, căn
- * hộ) chỉ khai báo dữ liệu.
- *
- * Vì sao không giữ lại Phaser cho phần 2D: cả trò chơi giờ là một thế giới 3D
- * liền mạch, không còn màn hình nào cần sprite. Hai engine cùng dựng một khung
- * hình là hai vòng lặp, hai hệ toạ độ và hai chỗ để lệch nhau.
+ * Thế giới mở, không cốt truyện: dựng MỘT thế giới (nhà + sân) đúng một lần,
+ * trao điều khiển cho người chơi ngay, và chỉ phản ứng với những gì họ làm —
+ * chạm vào đồ vật (E), thả diều (E ở bãi cỏ), thu diều (R), gọi trợ giúp.
+ * Đi từ trong nhà ra sân chỉ là mở một cánh cửa: không chuyển cảnh, không tải.
  */
 
-const LOCATIONS: Record<string, LocationBuilder> = {
-  AdultHomeScene: createAdultRoom,
-  ChildhoodScene: createChildhoodYard,
-};
+/** Động tác với tay chạm đồ vật (giây) và lúc bàn tay chạm tới (0 … 1). */
+const REACH_SECONDS = 0.62;
+const REACH_CONTACT = 0.45;
 
-/** Thời gian tối thiểu cho mỗi pha của hiệu ứng giấc mơ (ms). */
-const DREAM_PHASE_MS = 520;
-
-/**
- * story.json đếm bằng mili-giây (giống `clock.delay`), còn lớp 3D đếm bằng
- * giây (khớp `dt` của vòng lặp frame). Đây là chỗ ĐỔI ĐƠN VỊ duy nhất.
- */
-function seconds(ms: number): number {
-  return ms / 1000;
-}
+/** Động tác kéo dây thu diều (giây) — camera bay về trong lúc này. */
+const REEL_SECONDS = 1.1;
 
 export class WorldGame {
   private readonly audio = new HowlerAudio();
 
   private readonly tweens = new Tweens();
-
-  private readonly storyAudio = createStoryAudioHandler(this.audio);
 
   private engine: Engine | undefined;
 
@@ -69,8 +50,6 @@ export class WorldGame {
 
   private badges: Badges | undefined;
 
-  private overlay: HTMLDivElement | undefined;
-
   private location: LocationRuntime | undefined;
 
   /** Trò chơi con đang chạy (thả diều). Chỉ một ván một lúc. */
@@ -78,18 +57,22 @@ export class WorldGame {
 
   private detachFrame: (() => void) | undefined;
 
-  private readonly collected = new Set<string>();
-
   private activeSpotId: string | undefined;
-
-  /** Lời kết của bối cảnh chỉ đọc một lần. */
-  private epilogueDone = false;
 
   private controlsEnabled = false;
 
   private footsteps: { move: (p: { x: number; y: number; z: number }) => void; stop: () => void } | undefined;
 
-  private stageAttached = false;
+  /** Chỗ đang ngồi (cửa sổ, băng ghế) — có thì camera giữ khung ngắm cảnh. */
+  private seated: SeatView | undefined;
+
+  /** Đang đứng dậy — chặn cú bấm thứ hai trong lúc người còn đang nhổm lên. */
+  private standing = false;
+
+  /** Đang đọc bảng trợ giúp — chặn cú bấm Trợ giúp thứ hai chồng lên. */
+  private helpOpen = false;
+
+  private detachHelp: (() => void) | undefined;
 
   /** Idempotent: React StrictMode gọi effect hai lần, chỉ được dựng một engine. */
   start(container: HTMLElement) {
@@ -103,13 +86,25 @@ export class WorldGame {
     this.rig = new CameraRig(engine.camera, this.tweens);
 
     this.badges = new Badges(container);
-    this.overlay = createDreamOverlay(container);
 
     setInputDevice(this.input.currentDevice);
 
-    this.attachStage();
+    // Khoá/nhả chuột là thay đổi người chơi KHÔNG nhìn thấy (con trỏ chỉ biến
+    // mất hoặc hiện lại), nên phải nói thành lời — nhất là khi bấm Esc.
+    this.input.onPointerLock((locked) => {
+      gameEvents.emit("look", { locked });
+      gameEvents.emit("notice", {
+        text: locked
+          ? "Di chuột để nhìn quanh · Esc để thoát chế độ này"
+          : "Đã thoát điều khiển góc nhìn bằng chuột — bấm vào màn hình để bật lại",
+        hold: locked ? 2600 : 3400,
+      });
+    });
 
-    this.enter("AdultHomeScene");
+    // Trợ giúp là thứ NGƯỜI CHƠI gọi, không phải thứ tự bật lên.
+    this.detachHelp = gameEvents.on("help", () => void this.showHelp());
+
+    this.enterWorld();
 
     this.detachFrame = engine.onUpdate((frame) => this.frame(frame));
 
@@ -134,16 +129,20 @@ export class WorldGame {
     this.detachFrame?.();
     this.detachFrame = undefined;
 
+    this.detachHelp?.();
+    this.detachHelp = undefined;
+
     this.activity?.dispose();
     this.activity = undefined;
 
-    this.teardownLocation();
+    this.footsteps?.stop();
+    this.footsteps = undefined;
+
+    if (this.location) disposeObject(this.location.group);
+    this.location = undefined;
 
     this.badges?.dispose();
     this.badges = undefined;
-
-    this.overlay?.remove();
-    this.overlay = undefined;
 
     this.input?.dispose();
     this.input = undefined;
@@ -166,7 +165,7 @@ export class WorldGame {
     const input = this.input;
     const location = this.location;
 
-    if (!engine || !rig || !input) return;
+    if (!engine || !rig || !input || !location) return;
 
     this.tweens.update(dt);
 
@@ -181,19 +180,29 @@ export class WorldGame {
 
     const look = input.look();
 
-    if (location) {
-      // Nhân vật đi theo hướng CAMERA: xoay camera rồi bấm W là đi về phía
-      // màn hình, đúng như mọi game góc nhìn thứ ba.
-      location.character.update(input.snapshot(), rig.yawAngle, dt, elapsed);
+    // Đọc phím tương tác MỖI frame, kể cả khi không đứng cạnh đồ vật nào: nếu
+    // chỉ đọc lúc đã có đồ vật, cú bấm ở chỗ trống nằm lại trong hàng đợi và
+    // món đồ kế tiếp tự phản ứng mà người chơi không bấm gì.
+    const interact = input.consumeInteract();
 
-      const position = location.character.position;
+    // Đang ngồi: bấm E hoặc bất kỳ phím di chuyển nào là đứng dậy.
+    if (this.seated && !this.standing && this.controlsEnabled) {
+      const move = input.snapshot();
 
-      rig.setTarget(position.x, position.y, position.z);
-      location.update?.(dt, elapsed);
-
-      this.updateBadges();
-      this.updateFootsteps();
+      if (interact || move.forward !== 0 || move.right !== 0) void this.standUp();
     }
+
+    // Nhân vật đi theo hướng CAMERA: xoay camera rồi bấm W là đi về phía màn
+    // hình, đúng như mọi game góc nhìn thứ ba.
+    location.character.update(input.snapshot(), rig.yawAngle, dt, elapsed);
+
+    const position = location.character.position;
+
+    rig.setTarget(position.x, position.y, position.z);
+    location.update?.(dt, elapsed);
+
+    this.updateSpots(interact);
+    this.updateFootsteps();
 
     rig.update(dt, look, elapsed);
 
@@ -206,111 +215,43 @@ export class WorldGame {
     this.badges?.update(engine.camera);
   }
 
-  // ── Bối cảnh ────────────────────────────────────────────────────────────
+  // ── Thế giới ────────────────────────────────────────────────────────────
 
-  private services(): WorldServices {
-    return {
-      engine: this.engine as Engine,
-      rig: this.rig as CameraRig,
-      audio: this.audio,
-      badges: this.badges as Badges,
-      tweens: this.tweens,
-      transition: (scene, duration) => void this.transition(scene, duration),
-      setControls: (enabled) => this.setControls(enabled),
-    };
-  }
-
-  private enter(name: string) {
+  private enterWorld() {
     const engine = this.engine;
     const rig = this.rig;
 
     if (!engine || !rig) return;
 
-    const build = LOCATIONS[name];
-
-    if (!build) throw new Error(`World: unknown location "${name}"`);
-
-    this.tweens.clear();
-    this.teardownLocation();
-
-    const location = build(this.services());
+    const location = createChildhoodYard({ engine });
 
     this.location = location;
-    this.collected.clear();
-    this.activeSpotId = undefined;
-    this.epilogueDone = false;
 
     engine.scene.add(location.group);
 
     rig.applyPreset(location.rig);
-    rig.setTarget(
-      location.character.position.x,
-      location.character.position.y,
-      location.character.position.z,
-    );
-    rig.lookAt(
-      location.character.position.x,
-      location.character.position.y + 1,
-      location.character.position.z,
-    );
+    // Cần gạt phải biết thế giới có gì để không chọc xuyên qua: tường nhà, cây,
+    // giếng là cùng một danh sách vật cản mà nhân vật đã dùng.
+    rig.setColliders(location.colliders ?? []);
 
-    this.badges?.clear();
+    const { x, y, z } = location.character.position;
+
+    rig.setTarget(x, y, z);
+    rig.lookAt(x, y + 1, z);
 
     for (const spot of location.spots) {
       this.badges?.add({
         id: spot.id,
         label: spot.label,
-        position: new THREE.Vector3(
-          spot.x,
-          location.badgeHeight?.[spot.id] ?? 2.4,
-          spot.z,
-        ),
+        position: new THREE.Vector3(spot.x, location.badgeHeight?.[spot.id] ?? 2.4, spot.z),
       });
     }
 
-    this.setControls(false);
+    // Tiếng chim chiều lan khắp nhà và sân — nền âm thanh duy nhất, không ai
+    // dẫn chuyện.
+    this.audio.fadeIn("childhoodBirds", 2400, 0.26);
 
-    // HUD + thẻ chương
-    gameEvents.emit("hud", {
-      time: location.heading.time,
-      chapter: location.heading.title,
-    });
-
-    gameEvents.emit("chapter", {
-      index: location.heading.index,
-      title: location.heading.title,
-      subtitle: location.heading.subtitle,
-    });
-
-    const memoryTotal = this.memoryTotal(location);
-
-    if (memoryTotal > 0) {
-      gameEvents.emit("hud", { memories: 0, total: memoryTotal });
-    }
-
-    void storyDirector
-      .play(location.story)
-      .then(() => {
-        // Nhịp cuối của chương có thể đã đổi bối cảnh; khi đó không bật lại
-        // điều khiển của cảnh cũ nữa.
-        if (this.location === location) this.setControls(true);
-      })
-      .catch((error: unknown) => {
-        console.error("[world] story failed", error);
-      });
-  }
-
-  private teardownLocation() {
-    const location = this.location;
-
-    if (!location) return;
-
-    this.footsteps?.stop();
-    this.footsteps = undefined;
-
-    this.location = undefined;
-
-    disposeObject(location.group);
+    this.setControls(true);
   }
 
   private setControls(enabled: boolean) {
@@ -327,192 +268,26 @@ export class WorldGame {
     gameEvents.emit("controls", { enabled });
   }
 
-  private transition(scene: string, duration: number) {
-    const overlay = this.overlay;
+  // ── Đồ vật ──────────────────────────────────────────────────────────────
 
-    if (!overlay || !LOCATIONS[scene]) return Promise.resolve();
-
-    overlay.classList.add("is-active");
-
-    return new Promise<void>((resolve) => {
-      window.setTimeout(() => {
-        this.enter(scene);
-
-        window.setTimeout(() => {
-          overlay.classList.remove("is-active");
-          resolve();
-        }, Math.max(DREAM_PHASE_MS, duration * 0.4));
-      }, Math.max(DREAM_PHASE_MS, duration * 0.5));
-    });
-  }
-
-  // ── Nhịp truyện ─────────────────────────────────────────────────────────
-
-  private attachStage() {
-    if (this.stageAttached) return;
-
-    this.stageAttached = true;
-
-    const handlers: StageHandlers = {
-      audio: (beat) => this.handleAudio(beat),
-
-      walk: (beat) => {
-        const location = this.location;
-        const point = location?.walkPoints[beat.to];
-
-        if (!location || !point) {
-          throw new Error(`Story: bối cảnh không có điểm đi tới "${beat.to}"`);
-        }
-
-        return location.character.walkTo(
-          point.x,
-          point.z,
-          seconds(beat.duration ?? 1500),
-        );
-      },
-
-      pan: (beat) => {
-        const location = this.location;
-        const point = location?.panPoints[beat.to];
-
-        if (!location || !point) {
-          throw new Error(`Story: bối cảnh không có điểm ngắm "${beat.to}"`);
-        }
-
-        return this.rig?.panTo(point, seconds(beat.duration ?? 1200));
-      },
-
-      zoom: async (beat) => {
-        await this.rig?.dollyTo(beat.level, seconds(beat.duration ?? 1500));
-
-        if (beat.follow) {
-          this.rig?.setFollow(true);
-          this.rig?.resetPan();
-        }
-      },
-
-      reveal: (beat) => this.reveal(seconds(beat.duration ?? 1500)),
-
-      controls: (beat) => {
-        this.setControls(beat.enabled);
-      },
-
-      transition: (beat) => this.transition(beat.scene, beat.duration ?? 3000),
-
-      activity: (beat) => this.playActivity(beat.activity, beat.duration),
-    };
-
-    storyDirector.attachStage({ name: "World", handlers });
-  }
-
-  /**
-   * Nhịp `activity` — giao quyền cho một trò chơi con.
-   *
-   * Đây là chỗ DUY NHẤT đấu dây giữa cốt truyện và minigame: cốt truyện chỉ
-   * biết TÊN trò chơi và nó được bao nhiêu thời gian, còn minigame không biết
-   * gì về nhịp truyện. Tên không có trong bảng thì lỗi nêu tên — giống mọi
-   * nhịp khác, không im lặng bỏ qua.
-   *
-   * KHÔNG bật lại điều khiển ở đây: nhịp `controls` trong data vẫn là thứ duy
-   * nhất quyết định việc đó, nên đọc story.json là biết lúc nào người chơi
-   * cầm lái. Nếu tự bật ở đây thì một đoạn thoại ngay sau đó sẽ cho người chơi
-   * vừa đọc vừa chạy lung tung.
-   */
-  private async playActivity(name: string, durationMs?: number) {
-    if (!isActivity(name)) {
-      throw new Error(`World: không có trò chơi "${name}"`);
-    }
-
-    const engine = this.engine;
+  private updateSpots(interact: boolean) {
     const location = this.location;
 
-    if (!engine || !location) {
-      throw new Error("World: chưa vào bối cảnh nào để chơi");
-    }
+    if (!location || !this.controlsEnabled) return;
 
-    if (this.activity) {
-      throw new Error("World: đang có một trò chơi chạy dở");
-    }
-
-    this.setControls(false);
-
-    const activity = new KiteActivity({
-      engine,
-      character: location.character,
-      readInput: () => this.input?.kiteInput() ?? { reel: 0, steer: 0 },
-      camera: (target, distance) => this.rig?.setCinematic(target, distance),
-      forward: location.kiteForward ?? { x: 1, z: 0 },
-      durationMs,
-    });
-
-    this.activity = activity;
-
-    try {
-      await activity.play();
-    } finally {
-      // `finally` chứ không phải sau `await`: một lỗi giữa ván cũng không được
-      // để diều nằm lại trong scene hoặc camera kẹt ở cảnh điện ảnh.
-      activity.dispose();
-      this.activity = undefined;
-    }
-  }
-
-  /**
-   * Nhịp `audio` — điểm khác duy nhất so với bản cũ: slot nào có nguồn trong
-   * không gian thì phát tại chỗ, nên tiếng trống trường đến từ phía trường.
-   */
-  private handleAudio(beat: BeatOfType<"audio">) {
-    const source =
-      beat.op === "play"
-        ? this.location?.spatialSources?.[beat.slot as AudioSlot]
-        : undefined;
-
-    if (source) {
-      const voice = this.audio.playAt(beat.slot as AudioSlot, source, {
-        volume: beat.volume ?? 0.5,
-        loop: false,
-        id: `beat-${beat.slot}`,
-      });
-
-      window.setTimeout(() => voice.stop(), 9000);
+    // Đang ngồi thì không có đồ vật nào "trước mặt" — E là để đứng dậy.
+    if (this.seated) {
+      if (this.activeSpotId) {
+        this.activeSpotId = undefined;
+        this.badges?.hideAll();
+      }
 
       return;
     }
 
-    return this.storyAudio(beat);
-  }
-
-  /** Nhịp `reveal`: nhân vật hiện dần ra khỏi làn sáng (giây). */
-  private reveal(duration: number) {
-    const character = this.location?.character;
-
-    if (!character) return Promise.resolve();
-
-    character.setOpacity(0);
-
-    this.rig?.resetPan();
-
-    return this.tweens.add({
-      duration,
-      onUpdate: (t) => character.setOpacity(t),
-    });
-  }
-
-  // ── Điểm ký ức ──────────────────────────────────────────────────────────
-
-  private updateBadges() {
-    const location = this.location;
-
-    if (!location || location.spots.length === 0) return;
-
     const position = location.character.position;
 
-    const match = findActiveSpot(
-      position.x,
-      position.z,
-      location.spots,
-      this.collected,
-    );
+    const match = findActiveSpot(position.x, position.z, location.spots);
 
     if (match?.spot.id !== this.activeSpotId) {
       this.activeSpotId = match?.spot.id;
@@ -521,74 +296,184 @@ export class WorldGame {
       else this.badges?.hideAll();
     }
 
-    if (match && this.controlsEnabled && this.input?.consumeInteract()) {
-      void this.remember(match.spot);
+    if (match && interact && !location.character.busy) {
+      void this.touch(match.spot as Spot<SpotData>);
     }
   }
 
-  /** Số điểm hồi ký THẬT của bối cảnh — điểm mở trò chơi con không tính. */
-  private memoryTotal(location: LocationRuntime): number {
-    return location.spots.filter((spot) => !spot.activity).length;
+  /**
+   * Chạm vào một đồ vật: nhân vật quay về phía nó, với tay ra, và ĐÚNG lúc bàn
+   * tay chạm tới thì đồ vật phản ứng. Điểm mở trò chơi con (bãi diều) thì vào
+   * ván diều thay vì phản ứng.
+   */
+  private async touch(spot: Spot<SpotData>) {
+    const location = this.location;
+
+    if (!location) return;
+
+    if (spot.activity) {
+      await this.playActivity(spot.activity);
+
+      return;
+    }
+
+    if (spot.payload?.seat) {
+      await this.sitDown(spot.payload.seat);
+
+      return;
+    }
+
+    this.setControls(false);
+
+    location.character.face(spot.x, spot.z);
+
+    try {
+      await location.character.perform(
+        "reach",
+        REACH_SECONDS,
+        () => {
+          location.interact(spot.id);
+
+          if (spot.payload?.sfx) {
+            this.audio.play(spot.payload.sfx, { volume: 0.45 });
+          }
+        },
+        REACH_CONTACT,
+      );
+    } finally {
+      if (this.location === location) this.setControls(true);
+    }
   }
 
-  private async remember(spot: Spot<StoryLine>) {
+  /**
+   * Ngồi xuống: nhân vật bước tới ghế, quay người, hạ người xuống; camera trôi
+   * sang khung ngắm cảnh sau vai. Ngồi bao lâu cũng được — bấm E hoặc phím
+   * di chuyển là đứng dậy.
+   */
+  private async sitDown(seat: SeatView) {
     const location = this.location;
 
     if (!location) return;
 
     this.setControls(false);
 
-    // Điểm mở trò chơi con: không có thoại để đọc, và cũng không "thu thập" —
-    // thả diều thì chiều nào cũng thả lại được.
-    if (spot.activity) {
-      try {
-        await this.playActivity(spot.activity);
-      } finally {
-        // Cảnh có thể đã đổi trong lúc chơi — khi đó không bật lại điều khiển
-        // của bối cảnh cũ nữa.
-        if (this.location === location) this.setControls(true);
-      }
+    await location.character.sit(seat);
 
-      return;
-    }
-
-    await storyDirector.say(spot.payload as StoryLine);
-
-    // Cảnh có thể đã đổi trong lúc người chơi đọc — đừng đếm hồi ký vào sân
-    // của chương khác.
     if (this.location !== location) return;
 
-    playSfx("chime");
+    this.seated = seat;
+    this.rig?.setShot(seatShot(seat));
 
-    this.collected.add(spot.id);
-
-    gameEvents.emit("hud", {
-      memories: this.collected.size,
-      total: this.memoryTotal(location),
+    gameEvents.emit("notice", {
+      text: "Ngồi thư thả một lúc · E hoặc phím di chuyển để đứng dậy",
+      hold: 3200,
     });
 
     this.setControls(true);
+  }
 
-    this.maybeEpilogue(location);
+  private async standUp() {
+    const location = this.location;
+
+    if (!location || this.standing) return;
+
+    this.standing = true;
+    this.setControls(false);
+
+    // Camera bay về sau lưng trong lúc người đang nhổm dậy — hai chuyển động
+    // chồng lên nhau thay vì nối đuôi.
+    this.rig?.setShot(undefined);
+
+    try {
+      await location.character.standUp();
+    } finally {
+      this.seated = undefined;
+      this.standing = false;
+
+      if (this.location === location) this.setControls(true);
+    }
   }
 
   /**
-   * Lời kết của chương — đọc khi sân đã nhặt hết hồi ký.
+   * Ván thả diều — vào bằng E ở bãi cỏ, ra bằng R lúc nào cũng được.
    *
-   * Dùng `say()` chứ không phải một nhịp trong script: đây là phản ứng với
-   * việc người chơi đã làm, chứ không phải một bước của kịch bản. Chỗ này an
-   * toàn vì `remember()` chạy từ vòng lặp frame, không nằm trong hàng đợi của
-   * director — nếu gọi `say()` từ TRONG một nhịp thì hàng đợi tự chờ chính nó.
+   * Ván không tự kết thúc: dù diều còn dây hay đã đứt và trôi đi, camera bám
+   * theo nó cho tới khi người chơi thu diều. Lúc đó nhân vật kéo dây, camera
+   * trôi về sau lưng, con diều lại nằm chờ trên cỏ — và E là chơi lại.
    */
-  private maybeEpilogue(location: LocationRuntime) {
-    const epilogue = location.epilogue;
+  private async playActivity(name: string) {
+    if (!isActivity(name)) {
+      throw new Error(`World: không có trò chơi "${name}"`);
+    }
 
-    if (!epilogue || this.epilogueDone) return;
-    if (this.collected.size < this.memoryTotal(location)) return;
+    const engine = this.engine;
+    const location = this.location;
 
-    this.epilogueDone = true;
+    if (!engine || !location || this.activity) return;
 
-    void storyDirector.say(epilogue);
+    this.setControls(false);
+
+    const activity = new KiteActivity({
+      engine,
+      character: location.character,
+      readInput: () => this.input?.kiteInput() ?? { reel: 0, steer: 0 },
+      readViewToggle: () => this.input?.consumeCameraToggle() ?? false,
+      readExit: () => this.input?.consumeKiteExit() ?? false,
+      camera: (shot) => this.rig?.setShot(shot),
+      forward: location.kiteForward ?? { x: 1, z: 0 },
+    });
+
+    this.activity = activity;
+
+    // Phím thu diều có HAI cửa: phím R (đi đường `Input`) và nút trên bảng
+    // điều khiển cho màn hình cảm ứng. Hai cửa gộp về MỘT hàng đợi.
+    const detachExit = gameEvents.on("kiteExit", () => this.input?.queueKiteExit());
+
+    // Con diều nằm trên cỏ được CẤT ĐI trong lúc nó đang bay, và hiện lại đúng
+    // chỗ cũ khi ván kết thúc — đó là toàn bộ cơ chế "reset diều".
+    this.setKiteWaiting(location, false);
+
+    try {
+      await activity.play();
+    } finally {
+      // `finally`: một lỗi giữa ván cũng không được để diều nằm lại trong
+      // scene hoặc camera kẹt trên trời.
+      detachExit();
+
+      // Trả camera TRƯỚC khi kéo dây: camera trôi về sau lưng nhân vật đúng
+      // trong lúc tay đang thu dây, hai chuyển động chồng lên nhau.
+      activity.dispose();
+      this.activity = undefined;
+
+      this.setKiteWaiting(location, true);
+    }
+
+    await location.character.perform("reel", REEL_SECONDS);
+
+    if (this.location === location) this.setControls(true);
+  }
+
+  /** Bật/tắt con diều nằm chờ trong sân — xem `LocationRuntime.kite`. */
+  private setKiteWaiting(location: LocationRuntime, waiting: boolean) {
+    if (location.kite) location.kite.visible = waiting;
+  }
+
+  /**
+   * Bảng trợ giúp — chỉ mở khi người chơi đang cầm lái: giữa ván diều thì
+   * bảng điều khiển của ván đã nói đủ, và hai lớp chữ chồng nhau chỉ che trời.
+   */
+  private async showHelp() {
+    if (this.helpOpen || !this.controlsEnabled) return;
+
+    this.helpOpen = true;
+    this.setControls(false);
+
+    try {
+      await readLines(HELP_LINES);
+    } finally {
+      this.helpOpen = false;
+      this.setControls(true);
+    }
   }
 
   private updateFootsteps() {
@@ -614,15 +499,30 @@ export class WorldGame {
   }
 }
 
-/** Tấm phủ trắng của giấc mơ (CSS quyết định hình dạng của nó). */
-function createDreamOverlay(container: HTMLElement): HTMLDivElement {
-  const overlay = document.createElement("div");
+/** Khung hình ngắm cảnh khi ngồi: sau-chéo vai, nhìn ra xa; chuột để ngoảnh nhìn quanh. */
+export function seatShot(seat: SeatView): CameraShot {
+  const forwardX = Math.sin(seat.yaw);
+  const forwardZ = Math.cos(seat.yaw);
+  // Bên phải người ngồi (quay 90° theo chiều kim đồng hồ nhìn từ trên xuống).
+  const rightX = -forwardZ;
+  const rightZ = forwardX;
 
-  overlay.className = "dream";
-  overlay.setAttribute("aria-hidden", "true");
-  container.appendChild(overlay);
-
-  return overlay;
+  return {
+    position: new THREE.Vector3(
+      seat.x - forwardX * seat.back + rightX * seat.side,
+      seat.height + seat.eye,
+      seat.z - forwardZ * seat.back + rightZ * seat.side,
+    ),
+    look: new THREE.Vector3(
+      seat.x + forwardX * seat.ahead,
+      seat.height + seat.lookUp,
+      seat.z + forwardZ * seat.ahead,
+    ),
+    fov: seat.fov,
+    shake: 0,
+    // Người đang ngồi thì ngoảnh đầu nhìn quanh, không bay vòng quanh ghế.
+    pivot: "camera",
+  };
 }
 
 export const worldGame = new WorldGame();

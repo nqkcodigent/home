@@ -1,45 +1,44 @@
+import { useEffect, useState } from "react";
+
 import { MoveHint } from "./MoveHint";
+import { getInputDevice, subscribeInputDevice } from "../ui/device";
 
 interface Props {
-  time?: string;
-  chapter?: string;
   hint?: boolean;
-  memories?: number;
-  total?: number;
+  /** Chuột đang khoá vào khung game — có thì không cần nhắc bấm để nhìn. */
+  lookLocked?: boolean;
+  /**
+   * Mở bảng trợ giúp — CHỈ truyền khi người chơi đang cầm lái.
+   *
+   * Thế giới không có lời dẫn nào: hộp thoại chỉ mở khi người chơi chủ động
+   * bấm nút này.
+   */
+  onHelp?: () => void;
 }
 
-export function GameHUD({ time, chapter, hint, memories, total }: Props) {
-  const showMemories =
-    typeof memories === "number" && typeof total === "number" && total > 0;
+export function GameHUD({ hint, lookLocked, onHelp }: Props) {
+  const [device, setDevice] = useState(getInputDevice);
+
+  useEffect(() => subscribeInputDevice(setDevice), []);
 
   return (
     <div className="hud">
-      {time && (
-        <div className="hud__pill hud__pill--time">
-          <ClockIcon />
-          <span>{time}</span>
-        </div>
+      {/* Nhắc một dòng nhỏ ở đỉnh màn hình — không che cảnh, tự biến mất khi
+          chuột đã khoá. Cảm ứng thì kéo ngón tay như cũ, không cần nhắc. */}
+      {device === "keyboard" && !lookLocked && (
+        <p className="hud__look">
+          <MouseIcon />
+          Bấm vào khung cảnh để nhìn quanh bằng chuột
+        </p>
       )}
 
       <div className="hud__right">
-        {showMemories && (
-          <div className="hud__pill hud__pill--memory">
-            <LeafIcon />
-            <span>
-              Hồi ký {memories}/{total}
-            </span>
-            {/* Vạch tiến độ: "còn bao xa nữa" là câu hỏi người chơi tự hỏi
-                suốt buổi chiều, và hai con số thì phải tự trừ trong đầu. */}
-            <span className="hud__track" aria-hidden="true">
-              <span
-                className="hud__track-fill"
-                style={{ width: `${(memories / total) * 100}%` }}
-              />
-            </span>
-          </div>
+        {onHelp && (
+          <button type="button" className="hud__help" onClick={onHelp}>
+            <HelpIcon />
+            Trợ giúp
+          </button>
         )}
-
-        {chapter && <div className="hud__pill hud__pill--chapter">{chapter}</div>}
       </div>
 
       <MoveHint visible={hint} />
@@ -47,39 +46,27 @@ export function GameHUD({ time, chapter, hint, memories, total }: Props) {
   );
 }
 
-/** Đồng hồ con — vẽ bằng SVG để không phụ thuộc font biểu tượng của hệ điều hành. */
-function ClockIcon() {
+function MouseIcon() {
   return (
     <svg className="hud__icon" viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
-      <path
-        d="M12 7.5V12l3 2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
+      <rect x="6.5" y="3" width="11" height="18" rx="5.5" fill="none" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 7v3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
 
-function LeafIcon() {
+function HelpIcon() {
   return (
     <svg className="hud__icon" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
       <path
-        d="M5 19c0-7 4.5-12 14-13 .6 8.6-4.4 13.6-11.5 13.6L5 19z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M6 20c1.6-4 4.4-7 8.5-9"
+        d="M9.4 9.2a2.7 2.7 0 015.3.9c0 1.8-2.7 2-2.7 3.6"
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
       />
+      <circle cx="12" cy="17.2" r="1.1" fill="currentColor" />
     </svg>
   );
 }

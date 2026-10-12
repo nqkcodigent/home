@@ -54,6 +54,20 @@ export const DEFAULT_MOTION: MotionTuning = {
   stridesPerMetre: 0.7,
 };
 
+/**
+ * Bản tuning "`tired`" cho cảnh văn phòng lúc muộn — cốt truyện đang nói người
+ * chơi mệt về, nên đi chậm hơn, chậm lại nhanh hơn, quay người chậm hơn, và chừa
+ * khoảng 1 giây chết yên trước khi dáng đi hỗn loạn mới bắt đầu.
+ */
+export const TIRED_MOTION: MotionTuning = {
+  walkSpeed: 1.15,
+  runSpeed: 2.6,
+  acceleration: 9,
+  damping: 40,
+  turnRate: 5.5,
+  stridesPerMetre: 0.72,
+};
+
 export interface MotionStep {
   state: MotionState;
   /** Quãng đường đi được trong frame này (mét) */

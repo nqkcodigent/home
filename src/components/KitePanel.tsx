@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
 
+import { gameEvents } from "../events";
+import { KITE_SHOT_LABELS } from "../world/activities/kite/kiteCamera";
+
 import type { KiteHudPayload, KiteResultPayload } from "../events";
 
 interface Props {
@@ -15,21 +18,30 @@ const DANGER = 0.82;
 /**
  * Bảng điều khiển thả diều.
  *
- * Ba con số người chơi cần, xếp theo đúng thứ tự họ cần: còn bao nhiêu thời
- * gian, diều đang cao bao nhiêu, và **dây căng tới đâu** — thanh căng là thứ
- * duy nhất phải liếc liên tục, nên nó to nhất và đổi màu khi gần đứt.
+ * Bốn con số người chơi cần, xếp theo đúng thứ tự họ cần: đã bay bao lâu, diều
+ * cao bao nhiêu, dây căng tới đâu, và bao nhiêu điểm. Thanh căng là thứ duy
+ * nhất phải liếc liên tục nên nó to nhất và đổi màu khi gần đứt; hướng gió nằm
+ * cùng hàng vì hai thứ đó luôn được đọc cùng nhau.
  *
- * Hướng gió nằm cùng hàng với thanh căng vì hai thứ đó luôn được đọc cùng
- * nhau: căng lên mà gió đang mạnh thì phải thu dây.
+ * Ba trạng thái của ván đổi hẳn bảng này, nên chúng là ba nhánh chứ không phải
+ * ba lớp phủ lên nhau:
+ *
+ *  - `launch` — thêm bảng hướng dẫn, và nhắc luôn phím thu diều;
+ *  - `adrift` — dây đã đứt: thanh căng vô nghĩa, nút đổi góc máy vô nghĩa, nên
+ *    cả hai được thay bằng đúng một câu nói rõ chuyện gì đang xảy ra;
+ *  - `flying`-đã-lâu (`hint`) — người chơi vẫn đang bay, chỉ được nhắc rằng
+ *    bấm `R` là xong.
  */
 export function KitePanel({ data, result }: Props) {
+  const adrift = data?.phase === "adrift";
+
   return (
     <>
       {data?.visible && (
         <>
           <div className="kite" role="status" aria-label="Bảng thả diều">
             <div className="kite__stats">
-              <Pill icon={<ClockIcon />} label={formatTime(data.timeLeft ?? 0)} />
+              <Pill icon={<ClockIcon />} label={`${formatTime(data.elapsed ?? 0)} bay`} />
 
               <Pill
                 icon={<ArrowUpIcon />}
@@ -43,35 +55,72 @@ export function KitePanel({ data, result }: Props) {
                 tone="gold"
               />
 
-              <Pill
-                icon={<ThermalIcon />}
-                label={`${data.thermals ?? 0} nhiệt lưu`}
-                tone="warm"
-              />
-            </div>
-
-            <div className="kite__row">
-              <span className="kite__label">Dây</span>
-
-              <div
-                className={`kite__tension${
-                  (data.tension ?? 0) >= DANGER ? " is-danger" : ""
-                }`}
-              >
-                <span
-                  className="kite__tension-fill"
-                  style={{ width: `${Math.min(100, (data.tension ?? 0) * 100)}%` }}
+              {adrift && (
+                <Pill
+                  icon={<DriftIcon />}
+                  label={`trôi ${Math.round(data.drift ?? 0)} m`}
+                  tone="plain"
                 />
-              </div>
-
-              <span className="kite__label kite__label--wind">
-                Gió
-                <WindArrow degrees={data.windDirection ?? 0} />
-                <WindMeter strength={data.wind ?? 0} />
-              </span>
+              )}
             </div>
 
-            {(data.tension ?? 0) >= DANGER && (
+            {adrift ? (
+              <p className="kite__snapped">
+                Dây đã đứt — diều đang trôi tự do, không ai lái được nữa.
+              </p>
+            ) : (
+              <div className="kite__row">
+                <span className="kite__label">
+                  Dây {Math.round(data.line ?? 0)} m
+                </span>
+
+                <div
+                  className={`kite__tension${
+                    (data.tension ?? 0) >= DANGER ? " is-danger" : ""
+                  }`}
+                >
+                  <span
+                    className="kite__tension-fill"
+                    style={{ width: `${Math.min(100, (data.tension ?? 0) * 100)}%` }}
+                  />
+                </div>
+
+                <span className="kite__label kite__label--wind">
+                  Gió
+                  <WindArrow degrees={data.windDirection ?? 0} />
+                  <WindMeter strength={data.wind ?? 0} />
+                </span>
+              </div>
+            )}
+
+            <div className="kite__actions">
+              <button
+                type="button"
+                className="kite__view"
+                disabled={adrift}
+                // Không để cú bấm lọt xuống khung game thành thao tác kéo dây.
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => gameEvents.emit("kiteView", undefined)}
+                aria-label={`Đổi góc máy (đang: ${KITE_SHOT_LABELS[data.view ?? "drift"]})`}
+              >
+                <CameraIcon />
+                {KITE_SHOT_LABELS[data.view ?? "drift"]}
+                <kbd>C</kbd>
+              </button>
+
+              <button
+                type="button"
+                className={`kite__exit${data.hint ? " is-due" : ""}`}
+                // Không để cú bấm lọt xuống khung game.
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => gameEvents.emit("kiteExit", undefined)}
+                aria-label="Thu diều và quay lại đi dạo"
+              >
+                <kbd>R</kbd> thu diều, quay lại đi dạo
+              </button>
+            </div>
+
+            {!adrift && (data.tension ?? 0) >= DANGER && (
               <p className="kite__warning">Dây sắp đứt — thu dây lại!</p>
             )}
           </div>
@@ -81,13 +130,19 @@ export function KitePanel({ data, result }: Props) {
               <span className="kite__howto-title">Thả diều</span>
               <span>
                 <kbd>A</kbd>
-                <kbd>D</kbd> lạng để tìm cột khí nóng
+                <kbd>D</kbd> lạng diều sang hai bên
               </span>
               <span>
                 <kbd>W</kbd> thả dây cho diều lên cao
               </span>
               <span>
                 <kbd>S</kbd> thu dây khi dây căng
+              </span>
+              <span>
+                <kbd>C</kbd> đổi góc máy · di chuột để bay vòng quanh diều
+              </span>
+              <span className="kite__howto-out">
+                bấm <kbd>R</kbd> để thu diều, thả lại lúc nào cũng được
               </span>
             </div>
           )}
@@ -98,11 +153,7 @@ export function KitePanel({ data, result }: Props) {
         <div className={`kite-result kite-result--${result.outcome}`}>
           <div className="kite-result__card">
             <span className="kite-result__badge">
-              {result.outcome === "snapped"
-                ? "đứt dây"
-                : result.outcome === "landed"
-                  ? "diều xuống"
-                  : "hết buổi chiều"}
+              {result.outcome === "snapped" ? "đứt dây" : "thu diều"}
             </span>
 
             <h2 className="kite-result__title">{result.title}</h2>
@@ -139,7 +190,22 @@ function Pill({
   );
 }
 
-/** Đồng hồ đếm ngược. */
+function CameraIcon() {
+  return (
+    <svg className="kite__icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M4 8h3l2-2.5h6L17 8h3v11H4z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
+/** Đồng hồ đếm lên — ván diều không còn đếm ngược. */
 function ClockIcon() {
   return (
     <svg className="kite__icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -184,15 +250,24 @@ function StarIcon() {
   );
 }
 
-function ThermalIcon() {
+/** Con diều trôi — vệt bay ngoằn ngoèo của pha đứt dây. */
+function DriftIcon() {
   return (
     <svg className="kite__icon" viewBox="0 0 24 24" aria-hidden="true">
       <path
-        d="M8 20c0-3 3-3.4 3-6.4S8 10 8 7a4 4 0 018 0c0 3-3 3.2-3 6.2"
+        d="M3 17c4 0 5-11 9-11 3 0 3 5 6 5"
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
+      />
+      <path
+        d="M15 14l3-3-3-3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );
@@ -235,7 +310,7 @@ function WindMeter({ strength }: { strength: number }) {
  * hoạt động (eslint react-refresh).
  */
 function formatTime(seconds: number): string {
-  const total = Math.max(0, Math.ceil(seconds));
+  const total = Math.max(0, Math.floor(seconds));
 
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }

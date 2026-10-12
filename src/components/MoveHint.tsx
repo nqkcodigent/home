@@ -38,6 +38,13 @@ export function MoveHint({ visible }: Props) {
 
       <InputGlyph action="interact" />
       <span className="move-hint__text">tương tác</span>
+
+      {device === "keyboard" && (
+        <>
+          <span className="glyph glyph--key">H</span>
+          <span className="move-hint__text">ngắm cảnh</span>
+        </>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { Tweens, easeInOutSine } from "./Tween";
 import { terrainHeight } from "./terrain/heightfield";
 
 import type { LookDelta } from "./Input";
+import type { Obstacle } from "./physics/collide";
 
 /**
  * CameraRig — camera góc nhìn thứ ba kiểu character-threejs: một "cần gạt"
@@ -24,10 +25,90 @@ export interface CameraRigOptions {
   sensitivity?: number;
 }
 
+/** Góc máy tự do — xem `CameraRig.setShot()`. */
+export interface CameraShot {
+  position: THREE.Vector3;
+  look: THREE.Vector3;
+  fov: number;
+  /** 0…1 — độ rung */
+  shake: number;
+  /**
+   * Chuột xoay quanh đâu: `look` (mặc định) — quay QUANH điểm ngắm, như bay
+   * vòng quanh con diều; `camera` — đứng yên mà ngoảnh đầu nhìn quanh, như
+   * người đang ngồi.
+   */
+  pivot?: "look" | "camera";
+}
+
+/** Pha bay về góc thứ ba sau một góc máy tự do (giây). */
+const RETURN_SECONDS = 1.8;
+
 const MIN_PITCH = -0.12;
 const MAX_PITCH = 1.15;
 const MIN_DISTANCE = 2.2;
 const MAX_DISTANCE = 12;
+
+/**
+ * Cần gạt ngắn nhất, theo tỉ lệ tầm với (0,26 × 6,2 m ≈ 1,6 m).
+ *
+ * Có sàn này vì lý do khác hẳn `MIN_DISTANCE`: đó là giới hạn của người chơi
+ * (đừng cho zoom sát quá), còn đây là giới hạn khi vật cản ở ngay sau lưng —
+ * thu hết cỡ thì camera chui vào trong đầu nhân vật.
+ */
+export const MIN_BOOM = 0.26;
+
+/** Đệm thêm quanh mỗi vật cản (mét) — camera không dán sát mặt tường. */
+const BOOM_MARGIN = 0.45;
+
+/**
+ * Hệ số rút ngắn cần gạt để đoạn [tâm ngắm → camera] không chạm vật cản nào.
+ *
+ * Trả về 1 khi cả đoạn trống, ngược lại là tỉ lệ xa nhất còn kịp dừng TRƯỚC
+ * vật cản đầu tiên. Toán trên mặt phẳng XZ, cùng dữ liệu với va chạm của nhân
+ * vật: giao đúng một điểm chạm của phương trình bậc hai, lấy nghiệm nhỏ (điểm
+ * vào, không phải điểm ra).
+ */
+export function boomClearance(
+  fromX: number,
+  fromZ: number,
+  offsetX: number,
+  offsetZ: number,
+  colliders: readonly Obstacle[],
+  margin = BOOM_MARGIN,
+): number {
+  const lengthSq = offsetX * offsetX + offsetZ * offsetZ;
+
+  if (lengthSq < 1e-6) return 1;
+
+  let best = 1;
+
+  for (const collider of colliders) {
+    const radius = collider.radius + margin;
+    const dx = fromX - collider.x;
+    const dz = fromZ - collider.z;
+
+    const c = dx * dx + dz * dz - radius * radius;
+
+    // Tâm ngắm đã nằm trong vật cản (hiếm: nhân vật không đi vào được). Không
+    // có nghiệm dương nào để mà cắt, nên chỉ còn nước giữ cần gạt ở mức ngắn.
+    if (c <= 0) {
+      best = Math.min(best, MIN_BOOM);
+
+      continue;
+    }
+
+    const b = 2 * (offsetX * dx + offsetZ * dz);
+    const discriminant = b * b - 4 * lengthSq * c;
+
+    if (discriminant <= 0) continue;
+
+    const hit = (-b - Math.sqrt(discriminant)) / (2 * lengthSq);
+
+    if (hit >= 0 && hit < best) best = hit;
+  }
+
+  return Math.max(MIN_BOOM, best);
+}
 
 export class CameraRig {
   private readonly tweens: Tweens;
@@ -58,20 +139,36 @@ export class CameraRig {
 
   private initialised = false;
 
+  /** Góc máy tự do — xem `setShot()`. */
+  private shot: CameraShot | undefined;
+
+  /** Còn bao lâu nữa (giây) thì hết pha bay về sau một góc máy tự do. */
+  private returning = 0;
+
   /**
-   * Chế độ điện ảnh — xem `setCinematic()`.
+   * Góc máy tự do đã làm mượt (chưa cộng phần chuột). Chuột cộng SAU bước làm
+   * mượt, nên xoay chuột phản hồi tức thì trong khi khung hình vẫn trôi êm
+   * theo con diều.
    */
-  private cinematic:
-    | { distance: number; pitch: number; fov: number }
-    | undefined;
+  private readonly shotPosition = new THREE.Vector3();
 
-  private readonly cinematicTarget = new THREE.Vector3();
+  private shotFresh = true;
 
-  /** FOV gốc, để trả lại đúng ống kính cũ khi hết cảnh điện ảnh. */
+  /** Độ lệch chuột trong góc máy tự do — xoá khi trả lại góc thứ ba. */
+  private readonly shotOffset = { yaw: 0, pitch: 0, zoom: 1 };
+
+  private readonly scratch = new THREE.Vector3();
+
+  private readonly shake = new THREE.Vector3();
+
+  /** Vật cản của bối cảnh hiện tại — cần gạt phải vòng ra ngoài chúng. */
+  private colliders: readonly Obstacle[] = [];
+
+  /** Hệ số rút ngắn cần gạt hiện tại (xem `boomClearance`). */
+  private boom = 1;
+
+  /** FOV gốc, để trả lại đúng ống kính cũ khi hết góc máy tự do. */
   private readonly baseFov: number;
-
-  /** Khoảng cách cần trôi về sau khi hết cảnh điện ảnh. */
-  private returnDistance: number | undefined;
 
   /**
    * @param tweens  Bộ hiệu ứng DÙNG CHUNG với WorldGame. Cần rig tự sở hữu một
@@ -178,7 +275,6 @@ export class CameraRig {
   resetZoom() {
     this.distance = this.options.distance;
     this.baseDistance = this.options.distance;
-    this.returnDistance = undefined;
   }
 
   /**
@@ -200,11 +296,12 @@ export class CameraRig {
     this.lookOffset.set(0, 0, 0);
     this.followEnabled = true;
     this.initialised = false;
+    this.boom = 1;
 
-    // Bối cảnh mới thì mọi thứ của cảnh cũ phải hết hiệu lực: hết cảnh điện
-    // ảnh, hết quán tính zoom, và trả lại ống kính gốc.
-    this.cinematic = undefined;
-    this.returnDistance = undefined;
+    // Bối cảnh mới thì mọi thứ của cảnh cũ phải hết hiệu lực: hết góc máy tự
+    // do, và trả lại ống kính gốc.
+    this.shot = undefined;
+    this.returning = 0;
 
     if (this.camera.fov !== this.baseFov) {
       this.camera.fov = this.baseFov;
@@ -216,69 +313,56 @@ export class CameraRig {
     this.yaw = yaw;
   }
 
+  /** Vật cản của bối cảnh (nhà, cây, giếng…) — đổi khi vào bối cảnh mới. */
+  setColliders(colliders: readonly Obstacle[]) {
+    this.colliders = colliders;
+    this.boom = 1;
+  }
+
   /**
-   * Nhịp điện ảnh: khoá tâm ngắm vào một điểm bất kỳ và nới ống kính.
+   * Góc máy tự do: đặt camera ở một vị trí bất kỳ, ngắm một điểm bất kỳ.
    *
-   * Vì sao cần: minigame thả diều kéo dài tới 60 m dây, mà góc nhìn thứ ba
-   * bám nhân vật thì không khung hình nào chứa nổi cả người chơi lẫn con diều
-   * ở cỡ bình thường. Chế độ này chỉ đổi BA con số (khoảng cách, pitch, FOV) và
-   * tạm ngừng xoay theo chuột — người chơi đang điều khiển diều, kéo chuột là
-   * để kéo dây.
+   * Vì sao cần: ván thả diều có góc nhìn từ mắt nhân vật và góc bay theo con
+   * diều — cần gạt xoay quanh một tâm ngắm không dựng được hai góc đó. Mọi giá
+   * trị trôi về đích theo hàm mũ, nên đổi góc là camera BAY sang, không giật.
+   * Chuột bị bỏ qua: lúc này kéo chuột là để kéo dây.
    *
-   * Gọi `setCinematic(undefined)` để trả lại camera góc nhìn thứ ba; mọi giá
-   * trị đều trôi về đích theo hàm mũ nên vào/ra cảnh đều mượt.
+   * Gọi `setShot(undefined)` để trả lại góc nhìn thứ ba: camera bay về sau
+   * lưng nhân vật trong `RETURN_SECONDS` với bộ giảm xóc mềm hơn thường lệ —
+   * từ trên trời cao bổ nhào về trong nửa giây thì chóng mặt, không thư thả.
    */
-  setCinematic(
-    target: { x: number; y: number; z: number } | undefined,
-    distance = 24,
-    // Pitch âm: camera hạ xuống DƯỚI điểm ngắm để nhìn lên. Diều luôn ở trên
-    // đầu, nên khung hình đúng là khung hình ngước lên trời.
-    pitch = -0.08,
-    fov = 58,
-  ) {
-    if (!target) {
-      this.cinematic = undefined;
-      // Không đặt lại ngay: camera TRÔI về cỡ cũ trong vài phần giây (xem
-      // `returnDistance` trong update), nếu không thì vừa hết ván diều là
-      // khung hình nhảy một cái.
-      this.returnDistance = this.baseDistance;
+  setShot(shot: CameraShot | undefined) {
+    if (this.shot && !shot) {
+      this.returning = RETURN_SECONDS;
+      this.resetShotOffset();
+    }
+
+    if (!this.shot && shot) this.shotFresh = true;
+
+    this.shot = shot;
+  }
+
+  private resetShotOffset() {
+    this.shotOffset.yaw = 0;
+    this.shotOffset.pitch = 0;
+    this.shotOffset.zoom = 1;
+  }
+
+  update(dt: number, look: LookDelta, elapsed: number) {
+    const shot = this.shot;
+
+    if (shot) {
+      this.updateShot(shot, dt, look, elapsed);
 
       return;
     }
 
-    this.cinematic = { distance, pitch, fov };
-    this.cinematicTarget.set(target.x, target.y, target.z);
-  }
-
-  update(dt: number, look: LookDelta, elapsed: number) {
-    const cinematic = this.cinematic;
-
-    if (cinematic) {
-      // Trôi về thông số điện ảnh; `look` bị bỏ qua hoàn toàn.
-      this.pitch = dampTowards(this.pitch, cinematic.pitch, 3, dt);
-      this.distance = dampTowards(this.distance, cinematic.distance, 3, dt);
-      this.camera.fov = dampTowards(this.camera.fov, cinematic.fov, 3, dt);
+    if (this.camera.fov !== this.baseFov) {
+      this.camera.fov = dampTowards(this.camera.fov, this.baseFov, 3, dt);
       this.camera.updateProjectionMatrix();
-
-      this.target.copy(this.cinematicTarget);
     }
 
-    if (!cinematic) {
-      if (this.returnDistance !== undefined) {
-        this.distance = dampTowards(this.distance, this.returnDistance, 3, dt);
-
-        if (Math.abs(this.distance - this.returnDistance) < 0.05) {
-          this.returnDistance = undefined;
-        }
-      }
-
-      if (this.camera.fov !== this.baseFov) {
-        this.camera.fov = dampTowards(this.camera.fov, this.baseFov, 3, dt);
-        this.camera.updateProjectionMatrix();
-      }
-    }
-
-    if (!cinematic && this.followEnabled) {
+    if (this.followEnabled) {
       if (look.x !== 0) this.yaw -= look.x * this.options.sensitivity;
       if (look.y !== 0) this.pitch += look.y * this.options.sensitivity;
     }
@@ -299,11 +383,23 @@ export class CameraRig {
 
     // Cần gạt: vị trí mong muốn = tâm ngắm + vector xoay quanh nó.
     const horizontal = Math.cos(this.pitch) * this.distance;
+    const offsetX = Math.sin(this.yaw) * horizontal;
+    const offsetZ = Math.cos(this.yaw) * horizontal;
+
+    // Chọc vào nhà thì phải ngắn lại. Thu NGAY nhưng nhả RA TỪ TỪ: một khung
+    // hình có tường ở tiền cảnh vẫn dễ chịu hơn cảnh camera nhấp nhô giữa hai
+    // bên tường mỗi khi tâm ngắm lướt qua mép vật cản.
+    const clearance = boomClearance(focusX, focusZ, offsetX, offsetZ, this.colliders);
+
+    this.boom =
+      clearance < this.boom
+        ? clearance
+        : dampTowards(this.boom, clearance, 2.2, dt);
 
     this.desired.set(
-      focusX + Math.sin(this.yaw) * horizontal,
-      focusY + Math.sin(this.pitch) * this.distance,
-      focusZ + Math.cos(this.yaw) * horizontal,
+      focusX + offsetX * this.boom,
+      focusY + Math.sin(this.pitch) * this.distance * this.boom,
+      focusZ + offsetZ * this.boom,
     );
 
     if (!this.initialised) {
@@ -313,8 +409,13 @@ export class CameraRig {
       this.camera.position.copy(this.desired);
     } else {
       // Giảm xóc độc lập với tần số khung hình (exp thay vì lerp hằng số).
-      const followLerp = 1 - Math.exp(-6.5 * dt);
-      const lookLerp = 1 - Math.exp(-9 * dt);
+      // Lúc đang bay về từ góc máy tự do thì mềm hơn hẳn.
+      const returning = this.returning > 0;
+
+      this.returning = Math.max(0, this.returning - dt);
+
+      const followLerp = 1 - Math.exp(-(returning ? 2.4 : 6.5) * dt);
+      const lookLerp = 1 - Math.exp(-(returning ? 3.6 : 9) * dt);
 
       this.smoothed.x += (focusX - this.smoothed.x) * lookLerp;
       this.smoothed.y += (focusY - this.smoothed.y) * lookLerp;
@@ -337,6 +438,108 @@ export class CameraRig {
     this.lookTarget.set(this.smoothed.x, this.smoothed.y + breathe, this.smoothed.z);
 
     this.camera.lookAt(this.lookTarget);
+  }
+
+  private updateShot(shot: CameraShot, dt: number, look: LookDelta, elapsed: number) {
+    const rate = 1 - Math.exp(-3 * dt);
+
+    if (!this.initialised) {
+      this.shotPosition.copy(shot.position);
+      this.smoothed.copy(shot.look);
+      this.initialised = true;
+      this.shotFresh = false;
+    } else {
+      // Bắt đầu từ ĐÚNG chỗ camera đang đứng: vào góc máy là bay sang, không nhảy.
+      if (this.shotFresh) {
+        this.shotPosition.copy(this.camera.position);
+        this.shotFresh = false;
+      }
+
+      this.shotPosition.lerp(shot.position, rate);
+      this.smoothed.lerp(shot.look, rate);
+    }
+
+    this.applyShotLook(shot, look);
+
+    const floor =
+      terrainHeight(this.camera.position.x, this.camera.position.z) + 0.55;
+
+    if (this.camera.position.y < floor) this.camera.position.y = floor;
+
+    this.camera.fov = dampTowards(this.camera.fov, shot.fov, 3, dt);
+    this.camera.updateProjectionMatrix();
+
+    // Rung bằng cách lệch ĐIỂM NGẮM (không lệch vị trí) để nhiễu không tích
+    // vào bộ giảm xóc; biên độ tỉ lệ khoảng cách nên góc lệch luôn như nhau.
+    const amplitude =
+      shot.shake * 0.012 * this.camera.position.distanceTo(this.smoothed);
+
+    this.shake.set(
+      Math.sin(elapsed * 37) + Math.sin(elapsed * 23 + 1.3) * 0.5,
+      Math.sin(elapsed * 41 + 0.7) + Math.sin(elapsed * 19 + 2.1) * 0.5,
+      Math.sin(elapsed * 29 + 2.4),
+    ).multiplyScalar(amplitude);
+
+    this.lookTarget.add(this.shake);
+
+    this.camera.lookAt(this.lookTarget);
+  }
+
+  /**
+   * Cộng phần chuột vào góc máy tự do — đặt `camera.position` và `lookTarget`.
+   *
+   *  - `look`: quay quanh điểm ngắm (yaw tự do, pitch có trần, lăn chuột để
+   *    lại gần/ra xa) — bay vòng quanh con diều mà ngắm.
+   *  - `camera`: camera đứng yên, chỉ ngoảnh — có giới hạn như cổ người thật.
+   */
+  private applyShotLook(shot: CameraShot, look: LookDelta) {
+    const offset = this.shotOffset;
+    const sensitivity = this.options.sensitivity;
+    const orbit = (shot.pivot ?? "look") === "look";
+
+    offset.yaw -= look.x * sensitivity;
+    offset.pitch += look.y * sensitivity;
+
+    if (orbit) {
+      offset.pitch = clamp(offset.pitch, -0.5, 1);
+
+      if (look.zoom !== 0) {
+        offset.zoom = clamp(offset.zoom * (1 + look.zoom * 0.25), 0.45, 2.2);
+      }
+    } else {
+      offset.yaw = clamp(offset.yaw, -1.3, 1.3);
+      offset.pitch = clamp(offset.pitch, -0.55, 0.55);
+    }
+
+    // Vector từ tâm quay tới đầu bên kia: camera (quay quanh điểm ngắm) hoặc
+    // điểm ngắm (ngoảnh từ camera).
+    const pivot = orbit ? this.smoothed : this.shotPosition;
+    const arm = this.scratch.subVectors(orbit ? this.shotPosition : this.smoothed, pivot);
+
+    const length = arm.length();
+    const horizontal = Math.hypot(arm.x, arm.z);
+    const heading = Math.atan2(arm.x, arm.z) + offset.yaw;
+    // Kéo chuột xuống: quay quanh diều thì camera lên cao; ngoảnh đầu thì cúi xuống.
+    const elevation = clamp(
+      Math.atan2(arm.y, horizontal) + (orbit ? offset.pitch : -offset.pitch),
+      -1.45,
+      1.45,
+    );
+    const reach = length * (orbit ? offset.zoom : 1);
+
+    arm.set(
+      Math.sin(heading) * Math.cos(elevation) * reach,
+      Math.sin(elevation) * reach,
+      Math.cos(heading) * Math.cos(elevation) * reach,
+    );
+
+    if (orbit) {
+      this.camera.position.copy(this.smoothed).add(arm);
+      this.lookTarget.copy(this.smoothed);
+    } else {
+      this.camera.position.copy(this.shotPosition);
+      this.lookTarget.copy(this.shotPosition).add(arm);
+    }
   }
 }
 

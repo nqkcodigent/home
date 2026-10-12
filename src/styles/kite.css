@@ -2,54 +2,50 @@
    Thả diều — bảng điều khiển và bảng kết quả
    ============================================================ */
 
+/* Bảng nhỏ, trong, nép góc dưới bên trái: lúc thả diều thứ đáng nhìn là bầu
+   trời, nên bảng chỉ chiếm một góc — không phải dải trắng chắn ngang màn hình. */
 .kite {
   position: absolute;
-  left: 50%;
-  bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  bottom: max(18px, env(safe-area-inset-bottom, 0px));
 
-  transform: translateX(-50%);
-
-  width: min(46rem, calc(100% - 24px));
+  width: min(23rem, calc(100% - 32px));
   z-index: var(--z-hud);
 
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 
-  padding: 14px 18px;
+  padding: 10px 13px;
 
   border-radius: var(--radius);
-  border: 1px solid var(--glass-line);
+  border: 1px solid rgba(255, 255, 255, 0.5);
 
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.94) 0%,
-    rgba(240, 250, 246, 0.9) 100%
-  );
+  background: rgba(255, 255, 255, 0.5);
 
-  box-shadow: var(--fab-gloss), var(--shadow);
-  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(10px) saturate(1.1);
 
   animation: kiteIn 0.3s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+  transition: opacity 0.4s ease;
 }
 
 @keyframes kiteIn {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(16px);
+    transform: translateY(16px);
   }
 
   to {
     opacity: 1;
-    transform: translateX(-50%);
+    transform: none;
   }
 }
 
 .kite__stats {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
+  gap: 6px;
 }
 
 .kite__pill {
@@ -57,13 +53,13 @@
   align-items: center;
   gap: 6px;
 
-  padding: 6px 13px;
+  padding: 4px 10px;
 
   border-radius: var(--radius-pill);
   border: 1px solid var(--glass-line);
-  background: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.78);
 
-  font-size: 0.95rem;
+  font-size: 0.84rem;
   font-weight: 800;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -239,6 +235,19 @@
   font-weight: 800;
 }
 
+/* Đường thoát khỏi ván diều: nhỏ hơn và nằm dưới cùng, vì đây không phải
+   việc phải làm ngay mà là lối ra khi người chơi muốn quay lại đi dạo. */
+.kite__howto-out {
+  margin-top: 2px;
+  padding-top: 6px;
+
+  border-top: 1px solid rgba(255, 255, 255, 0.22);
+
+  font-size: 0.82rem;
+  font-weight: 600;
+  opacity: 0.92;
+}
+
 .kite__howto kbd {
   display: inline-grid;
   place-items: center;
@@ -254,6 +263,136 @@
   font-family: var(--font-body);
   font-size: 12px;
   font-weight: 800;
+}
+
+/* Hàng dưới: nút đổi góc máy và lời nhắc cất diều.
+
+   Nút đổi góc bị VÔ HIỆU khi dây đã đứt — lúc đó chỉ còn một cảnh để xem, nên
+   để nút bấm được mà không đổi gì là nói dối người chơi. */
+.kite__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.kite__exit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  padding: 6px 12px;
+
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-line);
+  background: rgba(255, 255, 255, 0.72);
+
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+
+  cursor: pointer;
+
+  transition: color 0.3s ease, background 0.2s ease;
+}
+
+.kite__exit:hover {
+  background: #fff;
+}
+
+.kite__exit:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Bay đã lâu (hoặc dây đã đứt) thì lời nhắc này là việc DUY NHẤT còn lại phải
+   làm, nên nó nổi lên và nhấp nháy chậm. */
+.kite__exit.is-due {
+  color: var(--green-500);
+
+  animation: caretBlink 1.4s steps(1) infinite;
+}
+
+.kite__exit kbd {
+  display: inline-grid;
+  place-items: center;
+
+  min-width: 22px;
+  height: 22px;
+
+  border-radius: 6px;
+  background: rgba(35, 75, 58, 0.9);
+  color: #f4fff8;
+
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* Dây đã đứt: thanh lực căng và hướng gió không còn nghĩa gì, nên cả hàng đó
+   được thay bằng đúng một câu. */
+.kite__snapped {
+  margin: 0;
+  padding: 7px 10px;
+
+  border-radius: var(--radius-sm);
+  border: 1px dashed rgba(194, 69, 44, 0.45);
+  background: rgba(255, 236, 230, 0.7);
+
+  text-align: center;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #b8432b;
+}
+
+/* Nút đổi góc máy — cùng dáng pill, nhưng bấm được. */
+.kite__view {
+  align-self: flex-start;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  padding: 6px 8px 6px 13px;
+
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-line);
+  background: rgba(255, 255, 255, 0.86);
+
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--ink);
+
+  cursor: pointer;
+}
+
+.kite__view:hover:not(:disabled) {
+  background: #fff;
+}
+
+.kite__view:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.kite__view:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.kite__view kbd {
+  display: inline-grid;
+  place-items: center;
+
+  min-width: 22px;
+  height: 22px;
+
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.08);
+
+  font-family: var(--font-body);
+  font-size: 12px;
 }
 
 /* ── Bảng kết quả ───────────────────────────────────────────────────────── */
@@ -335,7 +474,7 @@
   color: #c2452c;
 }
 
-.kite-result--timeout .kite-result__badge {
+.kite-result--stowed .kite-result__badge {
   background: #ffeec6;
   color: #a5761a;
 }
@@ -381,9 +520,21 @@
   color: var(--ink-soft);
 }
 
+/* Cảm ứng: góc dưới bên trái là của cần điều khiển, nên bảng lên đỉnh màn hình. */
+@media (pointer: coarse) {
+  .kite {
+    top: max(64px, env(safe-area-inset-top, 0px));
+    bottom: auto;
+    left: 50%;
+
+    transform: translateX(-50%);
+    animation: none;
+  }
+}
+
 @media (max-width: 720px) {
   .kite {
-    padding: 11px 13px;
+    padding: 9px 11px;
   }
 
   .kite__pill {

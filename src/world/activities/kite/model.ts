@@ -3,29 +3,41 @@
  *
  * Vì sao tách hẳn ra: đây là chỗ dễ sai nhất của một minigame (cân bằng, trần
  * độ cao, lúc nào thì đứt dây), và cũng là thứ duy nhất không thể "nhìn là
- * biết đúng". Tách ra thì mô phỏng 60 giây chạy trong vài mili-giây của unit
- * test, còn lớp 3D chỉ còn việc vẽ kết quả.
+ * biết đúng". Tách ra thì mô phỏng vài phút bay chạy trong vài mili-giây của
+ * unit test, còn lớp 3D chỉ còn việc vẽ kết quả.
  *
  * ── Luật chơi, học trong năm giây ──────────────────────────────────────────
  * *Muốn lên cao thì phải thả dây dài, mà dây càng dài thì càng dễ đứt.*
- *
- * Đó là toàn bộ trò chơi, và mọi công thức dưới đây phục vụ đúng một câu đó:
  *
  *  - **Lực nâng** chỉ phụ thuộc sức gió. Gió mạnh thì diều lên, gió lặng thì
  *    diều tụt — người chơi không điều khiển được, chỉ phải chịu.
  *  - **Trần độ cao** bằng độ dài dây đang thả. Thả thêm dây là cách duy nhất
  *    để lên cao hơn.
- *  - **Lực căng** = gió × độ dài dây. Dây thả hết cỡ mà gặp cơn gió mạnh là
- *    đứt. Người chơi phải *thu dây lại* mỗi khi thanh căng nhích lên.
- *  - **Nhiệt lưu** (cột khí nóng) cho lực nâng gấp đôi và cộng điểm, nhưng
- *    cũng kéo căng thêm một chút — phần thưởng có giá của nó.
+ *  - **Lực căng** = gió × độ dài dây. Căng hết cỡ là đứt ngay.
+ *  - **Nguy cơ đứt** (`strain`) tích lại theo thời gian, nhanh hơn khi dây thả
+ *    nhiều, khi gió giật, và khi diều đã trôi ra sát mép vùng trời. Nó khiến
+ *    *lúc nào* đứt là chuyện không đoán trước được, nhưng KHÔNG cần số ngẫu
+ *    nhiên: cùng một lối chơi thì luôn cho cùng một ván, nên test vẫn tất định.
+ *
+ * ── Ván diều không có đồng hồ ──────────────────────────────────────────────
+ * Bản trước đếm ngược 45 giây rồi tự kết thúc. Nay ván chạy tới khi NGƯỜI CHƠI
+ * cất diều (`endKite`), vì yêu cầu là: dù diều còn bay hay đã đứt dây trôi đi,
+ * chỉ khi người chơi bấm phím thoát thì mới quay lại đi dạo. Mô phỏng vì thế
+ * không bao giờ tự đặt `over` — nó chỉ có hai pha:
+ *
+ *  - `flying`  — dây còn, người chơi lái được, nhiệt lưu còn ăn điểm.
+ *  - `adrift`  — dây đã đứt. Diều trôi theo gió và tụt dần, KHÔNG ai lái được
+ *    nữa; lái vào lúc này là vô nghĩa nên mô phỏng bỏ qua `steer`/`reel`.
+ *    Điểm lúc này đến từ quãng đường trôi — phần thưởng cho chuyến phiêu lưu.
  *
  * Cố ý KHÔNG có hình phạt cho việc thu dây (ngoài việc mất độ cao): người
- * chơi mới phải luôn có một nước đi an toàn rõ ràng. Một mô phỏng mà "chữa
- * cháy cũng làm mọi thứ tệ hơn" thì không dạy được gì.
+ * chơi mới phải luôn có một nước đi an toàn rõ ràng.
  */
 
-export type KiteOutcome = "landed" | "snapped" | "timeout";
+export type KiteOutcome = "snapped" | "stowed";
+
+/** Hai pha của một ván — xem phần đầu file. */
+export type KitePhase = "flying" | "adrift";
 
 export interface KiteInput {
   /** > 0 thu dây vào (mất độ cao nhưng hạ lực căng), < 0 thả dây ra */
@@ -35,8 +47,6 @@ export interface KiteInput {
 }
 
 export interface KiteTuning {
-  /** Thời lượng một ván (giây) */
-  duration: number;
   /** Gió nền */
   windBase: number;
   /** Biên độ gió giật */
@@ -60,10 +70,25 @@ export interface KiteTuning {
   thermalLift: number;
   /** Trần độ cao tuyệt đối (mét) */
   maxAltitude: number;
-  /** Lực căng làm đứt dây */
+  /** Lực căng làm đứt dây NGAY (không cần tích nguy cơ) */
   snapTension: number;
+  /** Miễn đứt trong bao nhiêu giây đầu — ván nào cũng phải kịp đã */
+  snapGrace: number;
+  /** Nguy cơ đứt cơ sở (mỗi giây) */
+  snapBase: number;
+  /** Nguy cơ đứt tăng theo bình phương LỰC CĂNG — sức căng là thứ người chơi đọc được */
+  snapLoad: number;
+  /** Nguy cơ đứt khi diều trôi ra sát mép vùng trời */
+  snapFar: number;
+  /** Diều trôi ngang nhanh gấp mấy lần khi đã đứt dây */
+  driftEscape: number;
+  /** Độ tụt của diều đã đứt dây (mét/giây²) */
+  adriftGravity: number;  /** Độ chao đảo của diều đã đứt dây (mét/giây²) */
+  adriftWobble: number;
   /** Điểm mỗi mét độ cao, mỗi giây */
   scorePerMetre: number;
+  /** Điểm mỗi mét diều trôi ngang sau khi đứt dây */
+  driftScore: number;
   /** Điểm thưởng khi phá kỷ lục độ cao, mỗi mét */
   recordBonus: number;
   /** Điểm thưởng khi bắt được một cột khí nóng */
@@ -71,7 +96,6 @@ export interface KiteTuning {
 }
 
 export const DEFAULT_KITE: KiteTuning = {
-  duration: 45,
   windBase: 0.55,
   windSwing: 0.3,
   feedRate: 9,
@@ -85,7 +109,15 @@ export const DEFAULT_KITE: KiteTuning = {
   thermalLift: 5.5,
   maxAltitude: 90,
   snapTension: 1,
+  snapGrace: 10,
+  snapBase: 0.004,
+  snapLoad: 0.12,
+  snapFar: 0.08,
+  driftEscape: 1.6,
+  adriftGravity: 1.1,
+  adriftWobble: 1.1,
   scorePerMetre: 0.35,
+  driftScore: 0.6,
   recordBonus: 2,
   thermalBonus: 40,
 };
@@ -100,7 +132,7 @@ export interface KiteState {
   lateral: number;
   /** Dây đang thả ra (mét) */
   lineLength: number;
-  /** Lực căng dây, 0…1; chạm `snapTension` là đứt */
+  /** Lực căng dây, 0…1; chạm `snapTension` là đứt ngay */
   tension: number;
   score: number;
   /** Độ cao lớn nhất đã đạt */
@@ -109,7 +141,13 @@ export interface KiteState {
   thermals: number;
   /** Chỉ số các cột đã bắt — để không cộng điểm hai lần */
   captured: number[];
-  timeLeft: number;
+  phase: KitePhase;
+  /** Nguy cơ đứt tích luỹ, 0…1 — chạm 1 là dây đứt */
+  strain: number;
+  /** Thời điểm đứt dây (giây, tính từ lúc bắt đầu ván) */
+  snapAt?: number;
+  /** Quãng đường diều đã trôi ngang sau khi đứt dây (mét) */
+  drift: number;
   over: boolean;
   outcome?: KiteOutcome;
 }
@@ -128,6 +166,21 @@ export interface Thermal {
 
 /** Bề rộng vùng trời mà người chơi được lạng trong đó (mét, mỗi bên). */
 export const KITE_SPAN = 15;
+
+/**
+ * Vùng trời mà diều ĐÃ ĐỨT DÂY được trôi tới (mét, mỗi bên).
+ *
+ * Rộng hơn hẳn vùng lái được: mất dây rồi thì diều không còn chịu luật nào
+ * ngoài gió, và cái "xa dần" ấy chính là cảm giác phiêu lưu mà cảnh quay phải
+ * bám theo. Vẫn có trần, vì trôi vô hạn thì bản đồ và camera đều vô nghĩa.
+ */
+export const KITE_DRIFT_SPAN = KITE_SPAN * 2.4;
+
+/** Mép vùng trời bắt đầu tính là "diều bay quá xa" (phần của nửa bên). */
+const FAR_EDGE = 0.9;
+
+/** Diều đã đứt dây không bao giờ chạm hẳn đất — nó còn lê trên cỏ. */
+const ADRIFT_FLOOR = 0.7;
 
 /** Chu kỳ sinh cột khí nóng và tuổi thọ của mỗi cột (giây). */
 const THERMAL_PERIOD = 6.5;
@@ -157,6 +210,61 @@ export function windStrength(t: number, tuning: KiteTuning = DEFAULT_KITE): numb
 /** Hướng gió theo độ (0 = bắc), xoay chậm — chỉ để HUD có cái mà vẽ. */
 export function windDirection(t: number): number {
   return (t * 7 + 20) % 360;
+}
+
+/**
+ * "Cơn giật" 0…1, giữ nguyên trong khoảng một giây rồi đổi.
+ *
+ * Đây là chỗ duy nhất tạo cảm giác bất ngờ cho ván diều, và nó tất định: băm
+ * số thứ tự của khoảng 1,1 giây ra một con số 0…1. Nhờ vậy lúc đứt dây là
+ * chuyện không đoán trước được với người chơi, mà `stepKite` vẫn là hàm thuần
+ * — test chạy lại luôn cho cùng kết quả.
+ */
+export function gustNoise(t: number): number {
+  const step = Math.floor(Math.max(0, t) / 1.1);
+  const hashed = Math.sin(step * 12.9898 + 4.1414) * 43758.5453;
+
+  return hashed - Math.floor(hashed);
+}
+
+/** Hệ số nhân của cơn giật: 0,6…2,2 — trung bình 1,4. */
+function gustFactor(t: number): number {
+  return 0.6 + gustNoise(t) * 1.6;
+}
+
+/**
+ * Nguy cơ đứt dây MỖI GIÂY ở trạng thái hiện tại.
+ *
+ * Ba thành phần, xếp theo mức độ người chơi cảm nhận được:
+ *  - nền: ván nào cũng có ngày đứt dây, không ai giữ được con diều mãi;
+ *  - **lực căng** (bình phương): thanh căng trên HUD là thứ người chơi liếc
+ *    suốt ván, nên rủi ro phải tỉ lệ với đúng con số họ nhìn thấy;
+ *  - diều trôi ra sát mép: dấu hiệu "quá xa", tự nhiên nhất để dây đứt.
+ *
+ * Nhân với `gustFactor` để nguy cơ dồn thành từng cơn chứ không rỉ đều.
+ */
+export function snapRate(
+  state: KiteState,
+  tuning: KiteTuning = DEFAULT_KITE,
+): number {
+  if (state.phase !== "flying") return 0;
+  if (state.t < tuning.snapGrace) return 0;
+
+  const span = tuning.lineMax - tuning.lineMin;
+  const ratio = span > 0 ? clamp((state.lineLength - tuning.lineMin) / span, 0, 1) : 0;
+
+  const beyond = clamp(
+    (Math.abs(state.lateral) - KITE_SPAN * FAR_EDGE) / (KITE_SPAN * (1 - FAR_EDGE)),
+    0,
+    1,
+  );
+
+  const shape =
+    tuning.snapBase +
+    tuning.snapLoad * state.tension * state.tension +
+    tuning.snapFar * beyond * ratio;
+
+  return shape * gustFactor(state.t);
 }
 
 /**
@@ -208,9 +316,25 @@ export function createKiteState(
     best: 8,
     thermals: 0,
     captured: [],
-    timeLeft: tuning.duration,
+    phase: "flying",
+    strain: 0,
+    snapAt: undefined,
+    drift: 0,
     over: false,
   };
+}
+
+/**
+ * Kết thúc ván theo ý NGƯỜI CHƠI (cất diều).
+ *
+ * Nằm ở đây chứ không ở lớp ván (KiteActivity) vì đây là một phép biến đổi
+ * trạng thái như mọi phép khác, và vì `over` là thứ `stepKite` phải tôn trọng:
+ * ván đóng băng ngay tại khung hình người chơi bấm phím, không trôi thêm.
+ */
+export function endKite(state: KiteState, outcome: KiteOutcome): KiteState {
+  if (state.over) return state;
+
+  return { ...state, over: true, outcome, climb: 0 };
 }
 
 /**
@@ -229,6 +353,10 @@ export function stepKite(
 
   const t = state.t + dt;
   const wind = windStrength(t, tuning);
+
+  if (state.phase === "adrift") {
+    return adriftStep(state, t, wind, dt, tuning);
+  }
 
   // ── Dây ──────────────────────────────────────────────────────────────────
   const lineLength = clamp(
@@ -301,8 +429,6 @@ export function stepKite(
 
   captured = captured.filter((index) => index >= oldestLive - 2);
 
-  const timeLeft = Math.max(0, state.timeLeft - dt);
-
   const base: KiteState = {
     ...state,
     t,
@@ -315,25 +441,97 @@ export function stepKite(
     best,
     thermals,
     captured,
-    timeLeft,
   };
 
-  // ── Kết thúc ────────────────────────────────────────────────────────────
-  // Ưu tiên đứt dây: nếu vừa cạn giờ vừa đứt thì chuyện đứt dây mới là chuyện
-  // người chơi vừa gây ra.
-  if (tension >= tuning.snapTension) {
-    return { ...base, over: true, outcome: "snapped", climb: -6 };
+  // ── Đứt dây ─────────────────────────────────────────────────────────────
+  // Hai đường vào cùng một sự kiện. Căng quá ngưỡng thì đứt ngay lập tức —
+  // đó là hình phạt cho việc thả dây hết cỡ. Còn lại thì nguy cơ tích dần,
+  // nên dây đứt vào một lúc không ai hẹn trước.
+  //
+  // Cả hai đường đều phải qua `snapGrace`: ván nào cũng cần một quãng đầu yên
+  // ắng, không thì người chơi vừa thấy con diều đã thấy nó bay mất.
+  const overstretched =
+    t >= tuning.snapGrace && tension >= tuning.snapTension;
+
+  const strain = overstretched
+    ? 1
+    : Math.min(1, state.strain + snapRate(state, tuning) * dt);
+
+  if (strain >= 1) {
+    return {
+      ...base,
+      phase: "adrift",
+      strain: 1,
+      snapAt: t,
+      // Diều vừa mất dây thì chúi xuống trước đã; quỹ đạo trôi tiếp do
+      // `adriftStep` lo.
+      tension: 0,
+      climb: Math.min(climb, -1.2),
+    };
   }
 
-  if (timeLeft <= 0) {
-    return { ...base, over: true, outcome: "timeout", climb: 0 };
-  }
+  return { ...base, strain };
+}
 
-  if (altitude <= 0.05 && climb <= 0) {
-    return { ...base, over: true, outcome: "landed", climb: 0 };
-  }
+/**
+ * Pha trôi tự do — dây đã đứt.
+ *
+ * Người chơi không còn lái được gì (`input` bị bỏ qua, đúng như thực tế: mất
+ * dây rồi thì chỉ còn đứng nhìn). Diều chao theo từng cơn gió, trôi ngang
+ * nhanh hơn hẳn lúc còn dây và tụt dần; chạm cỏ thì lê trên cỏ. Điểm cộng
+ * theo quãng đường trôi, nên "đi xa" là phần thưởng, không phải hình phạt.
+ */
+function adriftStep(
+  state: KiteState,
+  t: number,
+  wind: number,
+  dt: number,
+  tuning: KiteTuning,
+): KiteState {
+  // Hai sóng lệch tần số: một nhịp chao chậm và một rung nhỏ như giấy vỗ.
+  const flutter =
+    Math.sin(t * 1.9) * tuning.adriftWobble +
+    Math.sin(t * 4.3 + 1.1) * tuning.adriftWobble * 0.4;
 
-  return base;
+  const lateral = clamp(
+    state.lateral + (wind * tuning.driftSpeed * tuning.driftEscape + flutter * 0.6) * dt,
+    -KITE_DRIFT_SPAN,
+    KITE_DRIFT_SPAN,
+  );
+
+  // Còn một chút lực nâng (giấy diều vẫn cưỡi được gió) nhưng không đủ để
+  // thắng trọng lượng, nên đường bay là một đường tụt RẤT chậm có chao — gặp
+  // cơn giật mạnh thì nó còn lên, hết gió thì tụt vài chục phân một giây.
+  //
+  // Chậm là chủ ý: cảnh trôi tự do là cảnh phiêu lưu của người chơi. Tụt
+  // nhanh thì mười mấy giây sau con diều đã nằm trên cỏ và "bay theo diều"
+  // biến thành "nhìn con diều lê trên cỏ".
+  const climbTarget = wind * tuning.lift * 0.22 - tuning.adriftGravity + flutter;
+
+  const climb = damp(state.climb, climbTarget, 1.2, dt);
+
+  const altitude = Math.max(ADRIFT_FLOOR, state.altitude + climb * dt);
+
+  const travelled = Math.abs(lateral - state.lateral);
+
+  const best = Math.max(state.best, altitude);
+
+  const score =
+    state.score +
+    travelled * tuning.driftScore +
+    altitude * tuning.scorePerMetre * 0.5 * dt;
+
+  return {
+    ...state,
+    t,
+    altitude,
+    climb,
+    lateral,
+    tension: damp(state.tension, 0, 3, dt),
+    score,
+    best,
+    drift: state.drift + travelled,
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {

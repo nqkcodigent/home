@@ -41,20 +41,27 @@ export interface AvatarLook {
   accent: number;
   hairStyle: HairStyle;
   accessory: Accessory;
+  /** Áo len tay dài, bo tay và hai sọc len ngang ngực */
+  sweater?: boolean;
+  /** Màu khăn quàng cổ — có thì đuôi khăn bay theo gió khi chạy */
+  scarf?: number;
 }
 
 export const AVATAR_LOOKS: Record<AvatarVariant, AvatarLook> = {
   player: {
     height: 1.35,
     skin: 0xf6c9a4,
-    hair: 0x2b1d16,
-    // Áo vàng nhạt như nắng chiều — nhân vật chính nổi bật trên nền cỏ.
-    shirt: 0xffd45f,
-    shorts: 0x3f6ea8,
-    shoes: 0xe8e4dc,
-    accent: 0xe4573f,
+    hair: 0x3a2a20,
+    // Bảng màu "cozy": áo len màu yến mạch, quần xanh lá xô thơm, khăn đỏ đất
+    // nung — ấm mà dịu, vẫn nổi trên nền cỏ chiều mà không chói.
+    shirt: 0xf0dcb4,
+    shorts: 0x7f9c86,
+    shoes: 0xf4efe6,
+    accent: 0xc8664a,
     hairStyle: "bowl",
     accessory: "none",
+    sweater: true,
+    scarf: 0xd9785b,
   },
 
   friend: {
@@ -111,6 +118,8 @@ export interface AvatarRig {
   kneeR: THREE.Group;
   /** Hai mắt; lớp animation scale.y để chớp. */
   eyes: THREE.Group[];
+  /** Đuôi khăn quàng — xoay quanh gáy, bay ra sau khi chạy (nếu có khăn). */
+  scarfTail?: THREE.Group;
   /** Vật liệu để mờ dần khi "thức dậy" — dùng cho nhịp `reveal`. */
   materials: THREE.MeshStandardMaterial[];
 }
@@ -233,6 +242,63 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
   collar.scale.z = 0.9;
   body.add(collar);
 
+  if (look.sweater) {
+    // Hai sọc len ngang ngực: chi tiết rẻ nhất để chiếc áo đọc ra là "áo len".
+    for (const height of [0.56, 0.64]) {
+      const stripe = mesh(
+        new THREE.TorusGeometry(look.height * 0.139, look.height * 0.008, 6, 24),
+        accent,
+        [0, bodyHeight * height, 0],
+      );
+
+      stripe.rotation.x = Math.PI / 2;
+      stripe.scale.z = 0.83;
+      body.add(stripe);
+    }
+  }
+
+  // ── Khăn quàng ──────────────────────────────────────────────────────────
+  let scarfTail: THREE.Group | undefined;
+
+  if (look.scarf !== undefined) {
+    const scarf = material(look.scarf, materials);
+
+    scarf.roughness = 0.95;
+
+    const wrap = mesh(
+      new THREE.TorusGeometry(look.height * 0.098, look.height * 0.034, 10, 22),
+      scarf,
+      [0, bodyHeight * 0.84, 0],
+    );
+
+    wrap.rotation.x = Math.PI / 2;
+    wrap.scale.z = 0.92;
+    body.add(wrap);
+
+    // Đuôi khăn thả sau gáy, lệch trái; gốc nhóm là chỗ khăn vắt qua cổ để
+    // xoay quanh đó.
+    scarfTail = new THREE.Group();
+    scarfTail.position.set(-look.height * 0.045, bodyHeight * 0.82, -look.height * 0.085);
+
+    const tailLength = bodyHeight * 0.42;
+
+    scarfTail.add(
+      mesh(
+        new THREE.BoxGeometry(look.height * 0.07, tailLength, look.height * 0.022),
+        scarf,
+        [0, -tailLength / 2, 0],
+      ),
+      // Tua rua ở mép khăn.
+      mesh(
+        new THREE.BoxGeometry(look.height * 0.072, look.height * 0.02, look.height * 0.026),
+        accent,
+        [0, -tailLength + look.height * 0.012, 0],
+      ),
+    );
+
+    body.add(scarfTail);
+  }
+
   root.add(body);
 
   // ── Chân — group xoay quanh hông ────────────────────────────────────────
@@ -332,13 +398,25 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
     elbow.position.y = -bodyHeight * 0.42;
 
     elbow.add(
-      mesh(forearmGeometry, skin, [0, -bodyHeight * 0.16, 0]),
+      mesh(forearmGeometry, look.sweater ? shirt : skin, [0, -bodyHeight * 0.16, 0]),
       mesh(
         new THREE.SphereGeometry(look.height * 0.052, 12, 10),
         skin,
         [0, -bodyHeight * 0.32, 0],
       ),
     );
+
+    if (look.sweater) {
+      // Bo tay áo len, ngay trên bàn tay.
+      const cuff = mesh(
+        new THREE.TorusGeometry(look.height * 0.042, look.height * 0.013, 6, 14),
+        accent,
+        [0, -bodyHeight * 0.27, 0],
+      );
+
+      cuff.rotation.x = Math.PI / 2;
+      elbow.add(cuff);
+    }
 
     shoulder.add(elbow);
     shoulder.rotation.z = side * 0.16;
@@ -477,6 +555,7 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
     kneeL: knees[0],
     kneeR: knees[1],
     eyes,
+    scarfTail,
     materials,
   };
 }

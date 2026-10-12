@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import type { KiteState, Thermal } from "./model";
+import type { KiteState } from "./model";
 
 /**
  * Diều giấy — phần NHÌN của minigame.
@@ -9,15 +9,22 @@ import type { KiteState, Thermal } from "./model";
  * thanh tre, dựng thẳng bằng BufferGeometry thì nhẹ hơn cả việc nạp một file
  * .glb, và đổi màu giấy chỉ là đổi một tham số.
  *
- * Ba thứ đi kèm cũng nằm trong này vì chúng chỉ có nghĩa khi ở cạnh nhau:
+ * Mô hình được tách thành `createKiteModel()` vì có HAI chỗ cần nó: ván diều
+ * (con diều đang bay) và sân tuổi thơ (con diều nằm chờ trên cỏ, để người chơi
+ * lại gần bấm tương tác). Hai chỗ phải là cùng một con diều — nếu không thì
+ * "reset lại vị trí ban đầu" chỉ là một câu nói suông.
+ *
+ * Hai thứ đi kèm cũng nằm trong này vì chúng chỉ có nghĩa khi ở cạnh nhau:
  *
  *  - **Dây diều** — đường cong mỗi frame từ tay người chơi tới diều. Độ võng
  *    của dây là cách duy nhất để "thấy" lực căng mà không cần nhìn thanh HUD:
- *    dây căng thì gần như thẳng, dây chùng thì võng sâu.
+ *    dây căng thì gần như thẳng, dây chùng thì võng sâu. Đứt dây rồi thì dây
+ *    biến mất — đó cũng là một cách nói.
  *  - **Đuôi diều** — chuỗi đốt nối tiếp nhau (mỗi đốt là con của đốt trước),
  *    nên nó vung như một sợi roi thay vì cứng đờ.
- *  - **Cột khí nóng** — trụ sáng mờ, thở nhè nhẹ. Người chơi phải thấy được
- *    mình đang bay vào đâu, nếu không thì "tìm nhiệt lưu" chỉ là đoán mò.
+ *
+ * Không có hiệu ứng nào khác trên trời: không cột sáng, không dấu vết khí
+ * nóng. Bầu trời chỉ có con diều — camera bay theo nó thì tầm nhìn luôn trong.
  */
 
 export interface SkyFrame {
@@ -33,12 +40,29 @@ export interface SkyFrame {
 const KITE_MIN_DEPTH = 18;
 const KITE_DEPTH_SCALE = 0.3;
 
-/** Vùng trời nằm cách người chơi bao xa (nơi dựng các cột khí nóng). */
-const THERMAL_DEPTH = 26;
+/** Bao nhiêu phần quãng đường trôi thành khoảng cách xa thêm theo hướng bay. */
+const KITE_ESCAPE_SCALE = 0.35;
 
 /** Số đốt của đuôi và số điểm của dây. */
 const TAIL_SEGMENTS = 9;
 const STRING_POINTS = 16;
+
+/** Nửa chiều cao cánh diều (mét) — nửa trên và nửa dưới tính từ tâm giấy. */
+const KITE_SHOULDER = 1.25;
+
+/** Đuôi: đốt đầu dài hơn một chút, các đốt sau đều nhau (mét). */
+const TAIL_FIRST_LINK = 0.18;
+const TAIL_LINK = 0.24;
+
+/**
+ * Chiều cao CẢ cánh diều lẫn đuôi (mét) — từ đỉnh giấy xuống tận đuôi.
+ *
+ * Xuất ra ngoài vì đây không chỉ là chuyện hình khối: chọn tầm ống kính cho
+ * góc toàn cảnh cần biết con diều chiếm bao nhiêu phần khung hình, mà muốn
+ * biết thì phải biết nó cao bao nhiêu mét. Một hằng số, hai chỗ dùng.
+ */
+export const KITE_HEIGHT =
+  KITE_SHOULDER * 1.35 + KITE_SHOULDER + TAIL_FIRST_LINK + TAIL_SEGMENTS * TAIL_LINK;
 
 const PAPER = 0xf2635a;
 const PAPER_TRIM = 0xffd45f;
@@ -64,7 +88,13 @@ export function kiteWorldPosition(
     Math.max(0, state.lineLength * state.lineLength - state.altitude * state.altitude),
   );
 
-  const depth = KITE_MIN_DEPTH + horizontal * KITE_DEPTH_SCALE;
+  // Đứt dây rồi thì diều không còn bị sợi dây giữ trên một vành cung nữa: nó
+  // trôi ngang (`lateral`) và xa dần THEO HƯỚNG BAY (`drift`). Thiếu số hạng
+  // thứ hai thì con diều trôi ngang mãi trên một đường tròn, trông như đang
+  // bị buộc vào một sợi dây vô hình.
+  const escaped = state.phase === "adrift" ? state.drift * KITE_ESCAPE_SCALE : 0;
+
+  const depth = KITE_MIN_DEPTH + horizontal * KITE_DEPTH_SCALE + escaped;
 
   out
     .copy(frame.origin)
@@ -76,24 +106,192 @@ export function kiteWorldPosition(
   return out;
 }
 
+/** Một con diều giấy, dựng bằng hình khối, kèm cách giải phóng tài nguyên. */
+export interface KiteModel {
+  readonly group: THREE.Group;
+  /** Các đốt đuôi, từ gốc tới ngọn — cho hiệu ứng vung theo gió. */
+  readonly tail: readonly THREE.Group[];
+  dispose(): void;
+}
+
+/**
+ * Dựng một con diều: giấy, hai thanh tre, sáo, và đuôi nhiều đốt.
+ *
+ * Trả về cả danh sách đốt đuôi để bên gọi vung nó theo gió, và `dispose()` để
+ * bên gọi trả tài nguyên GPU — mỗi con diều có geometry riêng của nó.
+ */
+export function createKiteModel(): KiteModel {
+  const group = new THREE.Group();
+
+  const geometries: THREE.BufferGeometry[] = [];
+  const materials: THREE.Material[] = [];
+  const tail: THREE.Group[] = [];
+
+  const sail = new THREE.MeshStandardMaterial({
+    color: PAPER,
+    roughness: 0.62,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  });
+
+  const trim = new THREE.MeshStandardMaterial({
+    color: PAPER_TRIM,
+    roughness: 0.7,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  });
+
+  const bamboo = new THREE.MeshStandardMaterial({
+    color: BAMBOO,
+    roughness: 0.85,
+    metalness: 0,
+  });
+
+  const tailPaper = new THREE.MeshStandardMaterial({
+    color: TAIL_PAPER,
+    roughness: 0.75,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  });
+
+  materials.push(sail, trim, bamboo, tailPaper);
+
+  const height = KITE_SHOULDER;
+  const width = 0.95;
+
+  // Cánh diều: bốn điểm giấy (đỉnh, hai cánh, đuôi) cộng một điểm giữa đẩy
+  // ra sau — nhờ điểm giữa mà mặt giấy cong lên thành cái chảo, đúng dáng
+  // diều giấy thật chứ không phải một tấm bìa phẳng.
+  const top = [0, height, 0];
+  const bottom = [0, -height * 1.35, 0];
+  const left = [-width, -height * 0.1, 0];
+  const right = [width, -height * 0.1, 0];
+  const belly = [0, -height * 0.15, -0.28];
+
+  const triangles = [
+    top, left, belly,
+    left, bottom, belly,
+    bottom, right, belly,
+    right, top, belly,
+  ];
+
+  const sailGeometry = new THREE.BufferGeometry();
+
+  sailGeometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(triangles.flat(), 3),
+  );
+  sailGeometry.computeVertexNormals();
+
+  geometries.push(sailGeometry);
+
+  group.add(new THREE.Mesh(sailGeometry, sail));
+
+  // Viền giấy: một khung mảnh chạy quanh mép, chỉ để mắt bám được vào hình.
+  const outlineGeometry = new THREE.BufferGeometry();
+
+  outlineGeometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(
+      [...top, ...left, ...bottom, ...right, ...top].flat(),
+      3,
+    ),
+  );
+
+  geometries.push(outlineGeometry);
+
+  const outlineMaterial = new THREE.LineBasicMaterial({ color: PAPER_TRIM });
+
+  materials.push(outlineMaterial);
+
+  group.add(new THREE.Line(outlineGeometry, outlineMaterial));
+
+  // Hai thanh tre: sống dọc và thanh ngang, hơi lệch ra sau mặt giấy.
+  const spine = new THREE.Mesh(
+    new THREE.BoxGeometry(0.045, height * 2.35, 0.045),
+    bamboo,
+  );
+
+  spine.position.set(0, -height * 0.18, -0.12);
+  group.add(spine);
+  geometries.push(spine.geometry);
+
+  const crossbar = new THREE.Mesh(
+    new THREE.BoxGeometry(width * 2.1, 0.04, 0.04),
+    bamboo,
+  );
+
+  crossbar.position.set(0, -height * 0.1, -0.16);
+  group.add(crossbar);
+  geometries.push(crossbar.geometry);
+
+  // Sáo diều: một ống tre nhỏ gắn vào sống — chi tiết nhỏ mà ai lớn lên ở
+  // quê cũng nhận ra ngay.
+  const whistle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.05, 0.05, 0.3, 8),
+    bamboo,
+  );
+
+  whistle.position.set(0.12, height * 0.55, -0.1);
+  whistle.rotation.z = 0.4;
+  group.add(whistle);
+  geometries.push(whistle.geometry);
+
+  // Đuôi: chuỗi đốt lồng nhau, gốc ở đáy cánh diều.
+  const tailRoot = new THREE.Group();
+
+  tailRoot.position.set(0, -height * 1.35, 0);
+  group.add(tailRoot);
+
+  let parent: THREE.Object3D = tailRoot;
+
+  for (let index = 0; index < TAIL_SEGMENTS; index += 1) {
+    const segment = new THREE.Group();
+
+    segment.position.y = index === 0 ? -TAIL_FIRST_LINK : -TAIL_LINK;
+
+    const ribbon = new THREE.Mesh(
+      new THREE.BoxGeometry(0.16 - index * 0.008, 0.1, 0.012),
+      index % 3 === 0 ? trim : tailPaper,
+    );
+
+    ribbon.position.y = -0.06;
+    segment.add(ribbon);
+    geometries.push(ribbon.geometry);
+
+    parent.add(segment);
+    parent = segment;
+    tail.push(segment);
+  }
+
+  group.traverse((child) => {
+    child.frustumCulled = false;
+  });
+
+  return {
+    group,
+    tail,
+    dispose() {
+      for (const geometry of geometries) geometry.dispose();
+      for (const material of materials) material.dispose();
+
+      group.removeFromParent();
+    },
+  };
+}
+
 export class KiteField {
   readonly group = new THREE.Group();
 
-  private readonly kite = new THREE.Group();
-
-  private readonly tail: THREE.Group[] = [];
+  private readonly model = createKiteModel();
 
   private readonly stringLine: THREE.Line;
 
   private readonly stringPositions: Float32Array;
 
-  private readonly columns: THREE.Mesh[] = [];
+  private readonly builtMaterials: THREE.Material[] = [];
 
-  private readonly columnMaterial: THREE.MeshBasicMaterial;
-
-  private readonly geometries: THREE.BufferGeometry[] = [];
-
-  private readonly materials: THREE.Material[] = [];
+  private readonly builtGeometries: THREE.BufferGeometry[] = [];
 
   private readonly scratch = new THREE.Vector3();
 
@@ -104,30 +302,7 @@ export class KiteField {
   constructor() {
     this.group.name = "kite-field";
 
-    this.group.add(this.buildKite());
-
-    this.columnMaterial = new THREE.MeshBasicMaterial({
-      color: 0xfff2c0,
-      transparent: true,
-      opacity: 0.12,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-    });
-
-    this.materials.push(this.columnMaterial);
-
-    const columnGeometry = new THREE.CylinderGeometry(1, 0.62, 1, 16, 1, true);
-
-    this.geometries.push(columnGeometry);
-
-    for (let index = 0; index < 4; index += 1) {
-      const column = new THREE.Mesh(columnGeometry, this.columnMaterial);
-
-      column.visible = false;
-      this.columns.push(column);
-      this.group.add(column);
-    }
+    this.group.add(this.model.group);
 
     // Dây diều: một đường gấp khúc nhiều điểm, cập nhật vị trí mỗi frame.
     this.stringPositions = new Float32Array(STRING_POINTS * 3);
@@ -139,7 +314,7 @@ export class KiteField {
       new THREE.BufferAttribute(this.stringPositions, 3),
     );
 
-    this.geometries.push(stringGeometry);
+    this.builtGeometries.push(stringGeometry);
 
     const stringMaterial = new THREE.LineBasicMaterial({
       color: 0xfffaf0,
@@ -147,7 +322,7 @@ export class KiteField {
       opacity: 0.9,
     });
 
-    this.materials.push(stringMaterial);
+    this.builtMaterials.push(stringMaterial);
 
     this.stringLine = new THREE.Line(stringGeometry, stringMaterial);
 
@@ -168,17 +343,19 @@ export class KiteField {
     wind: number,
     elapsed: number,
   ): void {
-    this.kite.position.copy(position);
+    const group = this.model.group;
 
-    this.kite.rotation.order = "YXZ";
-    this.kite.rotation.y = Math.atan2(
+    group.position.copy(position);
+
+    group.rotation.order = "YXZ";
+    group.rotation.y = Math.atan2(
       towardPlayer.x - position.x,
       towardPlayer.z - position.z,
     );
-    this.kite.rotation.x = -(0.18 + wind * 0.45);
-    this.kite.rotation.z = Math.sin(elapsed * 0.9) * 0.08 * (0.4 + wind);
+    group.rotation.x = -(0.18 + wind * 0.45);
+    group.rotation.z = Math.sin(elapsed * 0.9) * 0.08 * (0.4 + wind);
 
-    this.tail.forEach((segment, index) => {
+    this.model.tail.forEach((segment, index) => {
       segment.rotation.x =
         0.22 + wind * 0.55 + Math.sin(elapsed * 5.4 + index * 0.55) * 0.14;
       segment.rotation.z =
@@ -191,8 +368,17 @@ export class KiteField {
    *
    * `tension` (0…1) quyết định độ võng: dây căng thì gần như thẳng — đó là
    * phản hồi thị giác cho thanh lực căng trên HUD, và nó đọc nhanh hơn số.
+   * `tension` âm (dây đã đứt) thì dây biến mất hẳn.
    */
   stretchString(from: THREE.Vector3, to: THREE.Vector3, tension: number): void {
+    if (tension < 0) {
+      this.stringLine.visible = false;
+
+      return;
+    }
+
+    this.stringLine.visible = true;
+
     const sag = (1 - Math.min(1, Math.max(0, tension))) * 0.09;
 
     this.scratchFrom.copy(from);
@@ -236,191 +422,12 @@ export class KiteField {
     this.stringLine.geometry.computeBoundingSphere();
   }
 
-  /** Dựng (hoặc ẩn) các cột khí nóng đang sống trong vùng trời. */
-  placeThermals(frame: SkyFrame, thermals: Thermal[], elapsed: number): void {
-    this.columns.forEach((column, index) => {
-      const thermal = thermals[index];
-
-      if (!thermal) {
-        column.visible = false;
-
-        return;
-      }
-
-      const height = 34 + thermal.strength * 22;
-
-      column.visible = true;
-      column.position
-        .copy(frame.origin)
-        .addScaledVector(frame.forward, THERMAL_DEPTH)
-        .addScaledVector(frame.right, thermal.x);
-
-      column.position.y = frame.origin.y + height / 2;
-      column.scale.set(thermal.radius, height, thermal.radius);
-
-      // Thở nhè nhẹ: cột khí nóng không phải một cái ống nhựa.
-      const pulse = 0.75 + Math.sin(elapsed * 1.7 + index) * 0.25;
-
-      column.rotation.y = elapsed * 0.12 + index;
-      column.scale.x *= pulse;
-      column.scale.z *= pulse;
-
-      column.renderOrder = 2;
-    });
-  }
-
   dispose(): void {
-    for (const geometry of this.geometries) geometry.dispose();
+    this.model.dispose();
 
-    for (const material of this.materials) material.dispose();
+    for (const geometry of this.builtGeometries) geometry.dispose();
+    for (const material of this.builtMaterials) material.dispose();
 
     this.group.removeFromParent();
-  }
-
-  // ── Dựng hình ────────────────────────────────────────────────────────────
-
-  private buildKite(): THREE.Group {
-    const sail = new THREE.MeshStandardMaterial({
-      color: PAPER,
-      roughness: 0.62,
-      metalness: 0,
-      side: THREE.DoubleSide,
-    });
-
-    const trim = new THREE.MeshStandardMaterial({
-      color: PAPER_TRIM,
-      roughness: 0.7,
-      metalness: 0,
-      side: THREE.DoubleSide,
-    });
-
-    const bamboo = new THREE.MeshStandardMaterial({
-      color: BAMBOO,
-      roughness: 0.85,
-      metalness: 0,
-    });
-
-    const tailPaper = new THREE.MeshStandardMaterial({
-      color: TAIL_PAPER,
-      roughness: 0.75,
-      metalness: 0,
-      side: THREE.DoubleSide,
-    });
-
-    this.materials.push(sail, trim, bamboo, tailPaper);
-
-    const height = 1.25;
-    const width = 0.95;
-
-    // Cánh diều: bốn điểm giấy (đỉnh, hai cánh, đuôi) cộng một điểm giữa đẩy
-    // ra sau — nhờ điểm giữa mà mặt giấy cong lên thành cái chảo, đúng dáng
-    // diều giấy thật chứ không phải một tấm bìa phẳng.
-    const top = [0, height, 0];
-    const bottom = [0, -height * 1.35, 0];
-    const left = [-width, -height * 0.1, 0];
-    const right = [width, -height * 0.1, 0];
-    const belly = [0, -height * 0.15, -0.28];
-
-    const triangles = [
-      top, left, belly,
-      left, bottom, belly,
-      bottom, right, belly,
-      right, top, belly,
-    ];
-
-    const sailGeometry = new THREE.BufferGeometry();
-
-    sailGeometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(triangles.flat(), 3),
-    );
-    sailGeometry.computeVertexNormals();
-
-    this.geometries.push(sailGeometry);
-
-    this.kite.add(new THREE.Mesh(sailGeometry, sail));
-
-    // Viền giấy: một khung mảnh chạy quanh mép, chỉ để mắt bám được vào hình.
-    const outlineGeometry = new THREE.BufferGeometry();
-
-    outlineGeometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(
-        [...top, ...left, ...bottom, ...right, ...top].flat(),
-        3,
-      ),
-    );
-
-    this.geometries.push(outlineGeometry);
-
-    const outlineMaterial = new THREE.LineBasicMaterial({ color: PAPER_TRIM });
-
-    this.materials.push(outlineMaterial);
-
-    this.kite.add(new THREE.Line(outlineGeometry, outlineMaterial));
-
-    // Hai thanh tre: sống dọc và thanh ngang, hơi lệch ra sau mặt giấy.
-    const spine = new THREE.Mesh(
-      new THREE.BoxGeometry(0.045, height * 2.35, 0.045),
-      bamboo,
-    );
-
-    spine.position.set(0, -height * 0.18, -0.12);
-    this.kite.add(spine);
-    this.geometries.push(spine.geometry);
-
-    const crossbar = new THREE.Mesh(
-      new THREE.BoxGeometry(width * 2.1, 0.04, 0.04),
-      bamboo,
-    );
-
-    crossbar.position.set(0, -height * 0.1, -0.16);
-    this.kite.add(crossbar);
-    this.geometries.push(crossbar.geometry);
-
-    // Sáo diều: một ống tre nhỏ gắn vào sống — chi tiết nhỏ mà ai lớn lên ở
-    // quê cũng nhận ra ngay.
-    const whistle = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, 0.3, 8),
-      bamboo,
-    );
-
-    whistle.position.set(0.12, height * 0.55, -0.1);
-    whistle.rotation.z = 0.4;
-    this.kite.add(whistle);
-    this.geometries.push(whistle.geometry);
-
-    // Đuôi: chuỗi đốt lồng nhau, gốc ở đáy cánh diều.
-    const tailRoot = new THREE.Group();
-
-    tailRoot.position.set(0, -height * 1.35, 0);
-    this.kite.add(tailRoot);
-
-    let parent: THREE.Object3D = tailRoot;
-
-    for (let index = 0; index < TAIL_SEGMENTS; index += 1) {
-      const segment = new THREE.Group();
-
-      segment.position.y = index === 0 ? -0.18 : -0.24;
-
-      const ribbon = new THREE.Mesh(
-        new THREE.BoxGeometry(0.16 - index * 0.008, 0.1, 0.012),
-        index % 3 === 0 ? trim : tailPaper,
-      );
-
-      ribbon.position.y = -0.06;
-      segment.add(ribbon);
-      this.geometries.push(ribbon.geometry);
-
-      parent.add(segment);
-      parent = segment;
-      this.tail.push(segment);
-    }
-
-    this.kite.traverse((child) => {
-      child.frustumCulled = false;
-    });
-
-    return this.kite;
   }
 }

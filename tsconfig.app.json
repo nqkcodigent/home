@@ -4,7 +4,9 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client"],
+    /* `node` chỉ để test đối chiếu được với đĩa (file âm thanh có thật hay
+       không) — mã chạy trong trình duyệt không dùng gì của Node. */
+    "types": ["vite/client", "node"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 

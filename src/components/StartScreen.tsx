@@ -12,12 +12,11 @@ interface Props {
  * Màn hình mở đầu.
  *
  * Không chỉ để đẹp: trình duyệt chặn phát âm thanh cho tới khi người dùng tương
- * tác, nên một cú bấm ở đây là thứ mở khoá toàn bộ tiếng dế, tiếng trống trường
- * và tiếng bước chân của cả trò chơi.
+ * tác, nên một cú bấm ở đây là thứ mở khoá tiếng chim, tiếng sáo diều và tiếng
+ * bước chân của cả trò chơi.
  *
- * Danh sách ba bước ở cuối không phải trang trí: người chơi cần biết trò chơi
- * này có gì để làm TRƯỚC khi bấm Bắt đầu, nếu không thì cả một buổi chiều chỉ
- * còn là đi lại trong sân.
+ * Không có cốt truyện nào: ba dòng ở cuối chỉ nói thế giới có gì để chạm vào,
+ * còn đi đâu, làm gì trước là việc của người chơi.
  */
 export function StartScreen({ onStart }: Props) {
   const [device, setDevice] = useState(getInputDevice);
@@ -47,7 +46,7 @@ export function StartScreen({ onStart }: Props) {
         <h1 className="cover__title">Hồi ký sân nhà</h1>
 
         <p className="cover__lede">
-          Một ngày dài ở thành phố, một giấc mơ dẫn về sân nhà ngày ấy.
+          Một căn nhà nhỏ, một khoảng sân vườn, một buổi chiều chẳng có gì phải vội.
         </p>
 
         <button type="button" className="cover__start" onClick={onStart}>
@@ -65,18 +64,19 @@ export function StartScreen({ onStart }: Props) {
           <span className="cover__controls-text">đi lại</span>
 
           <span className="glyph glyph--key glyph--wide">Chuột</span>
-          <span className="cover__controls-text">kéo để xoay</span>
+          <span className="cover__controls-text">di để nhìn quanh · Esc thả chuột</span>
         </div>
 
-        {/* Ba bước của buổi chiều — nói trước có gì để chơi, thay vì để người
-            chơi tự mò xem trò chơi này có gì. */}
         <ol className="cover__steps">
           <li>
-            Đi quanh sân, bấm <InputGlyph action="interact" /> ở chỗ sáng lên để
-            nhặt hồi ký.
+            Bạn tỉnh dậy trong nhà. Lại gần đồ vật bấm <InputGlyph action="interact" /> để
+            chạm vào — cánh cửa gỗ dẫn ra sân.
           </li>
-          <li>Ra bãi cỏ thả diều: kéo dây cho diều lên cao, đừng để dây đứt.</li>
-          <li>Nhặt đủ bốn hồi ký trong sân thì buổi chiều tự khép lại.</li>
+          <li>
+            Con diều nằm trên bãi cỏ: bấm <InputGlyph action="interact" /> để thả, bấm R
+            để thu về.
+          </li>
+          <li>Không có nhiệm vụ nào cả. Cần thì bấm Trợ giúp.</li>
         </ol>
       </div>
     </div>

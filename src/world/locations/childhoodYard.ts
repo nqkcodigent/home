@@ -3,92 +3,190 @@ import * as THREE from "three";
 import { Character } from "../character/Character";
 import { SKY_PRESETS, Sky } from "../world/Sky";
 import { Terrain } from "../world/Terrain";
+import { rotateObstacles } from "../physics/collide";
 import { YARD } from "../world/layout";
 import {
+  BENCH_SEAT_HEIGHT,
+  HOUSE,
+  HOUSE_PARTS,
+  WINDOW_SEAT,
   createBellTower,
+  createBench,
   createBush,
   createClothesLine,
+  createDoorObstacles,
   createFence,
   createHaystack,
   createHouse,
+  createHouseObstacles,
   createPond,
   createRock,
   createTree,
   createWell,
+  houseGroundHeight,
 } from "../world/Props";
+import { createKiteModel } from "../activities/kite/Kite";
+import { damp } from "../character/motion";
+import { terrainHeight } from "../terrain/heightfield";
 
 import type { AudioSlot } from "../audio/HowlerAudio";
+import type { Seat } from "../character/Character";
+import type { Obstacle } from "../physics/collide";
+import type { Spot } from "../interact/spots";
 import type { LocationRuntime, WorldServices } from "./types";
 
 /**
- * Sân nhà ngày ấy — bối cảnh chính của trò chơi.
+ * Thế giới của trò chơi — một ngôi nhà và khoảng sân vườn quanh nó.
  *
- * Đây là chỗ "kể chuyện bằng bố cục": nhà ở phía bắc, cổng ở phía nam, lối
- * đất nối thẳng hai đầu như trong một sân quê thật; giếng lệch sang phải,
- * gốc cây già bên trái, ao nhỏ xa hơn. Ba điểm ký ức nằm ở ba hướng khác nhau
- * nên người chơi phải đi một vòng quanh sân mới nhặt hết — cố ý, để chuyến
- * thăm kéo dài đúng bằng một buổi chiều.
+ * Không có cốt truyện: người chơi tỉnh dậy TRONG nhà, cửa đang đóng. Đi quanh
+ * phòng, chạm vào đồ vật, rồi mở cửa là sân vườn hiện ra — cùng một scene,
+ * không chuyển cảnh, không tải lại. Bố cục vẫn "kể chuyện" thay lời: nhà ở
+ * phía bắc, cổng ở phía nam, lối đất nối hai đầu; giếng, gốc cây già, cái ao
+ * và bãi cỏ thả diều nằm ở bốn hướng để người chơi tự đi tìm.
  */
 
-/** Bốn điểm ký ức — ba dòng cũ, cộng cái ao ở góc sân đông. */
-const MEMORY_SPOTS = [
-  {
-    id: "well",
-    x: YARD.well.x,
-    z: YARD.well.z,
-    radius: 3.4,
-    label: "Cái giếng",
-    payload: {
-      id: "memory-well",
-      speaker: "Bạn",
-      text: "Cái giếng này... hoá ra mình vẫn nhớ như in cái cảm giác mát rượi.",
-      emotion: "nostalgic",
-      portrait: "child",
-    },
-  },
+/**
+ * Độ nghiêng của ngôi nhà so với trục sân (radian).
+ *
+ * Nhỏ tới mức chỉ để ngôi nhà "ngồi" tự nhiên hơn một chút — nhưng nó là lý do
+ * vật cản, mặt sàn và mọi điểm tương tác trong nhà PHẢI đi qua phép xoay này.
+ *
+ * Khai báo NGAY ĐẦU file: `INDOOR_SPOTS` gọi `housePoint()` lúc module khởi
+ * tạo, mà đọc hằng số trước khi gán là lỗi TDZ — trắng màn hình khi vào game.
+ */
+export const HOUSE_ROTATION = 0.06;
+
+/** Một điểm trong toạ độ CỤC BỘ của nhà → toạ độ sân.
+ *
+ * Cùng một phép biến đổi với `rotateObstacles` (đã có test đối chiếu với
+ * three.js): nhà được đặt xuống sân rồi xoay `HOUSE_ROTATION`, nên đồ đạc
+ * bên trong cũng phải đi qua phép xoay đó.
+ */
+function housePoint(localX: number, localZ: number): { x: number; z: number } {
+  const cos = Math.cos(HOUSE_ROTATION);
+  const sin = Math.sin(HOUSE_ROTATION);
+
+  return {
+    x: YARD.house.x + localX * cos + localZ * sin,
+    z: YARD.house.z - localX * sin + localZ * cos,
+  };
+}
+
+/** Ngược lại: toạ độ sân → toạ độ cục bộ của nhà. */
+function houseLocal(x: number, z: number): { x: number; z: number } {
+  const cos = Math.cos(HOUSE_ROTATION);
+  const sin = Math.sin(HOUSE_ROTATION);
+  const dx = x - YARD.house.x;
+  const dz = z - YARD.house.z;
+
+  return { x: dx * cos - dz * sin, z: dx * sin + dz * cos };
+}
+
+/**
+ * Độ cao mặt nền ở bất kỳ đâu trong thế giới: sàn nhà, bó hè, bậc thềm, hoặc
+ * mặt đất. Nhân vật đứng trên đúng hàm này — đây là chỗ sửa lỗi "mất chân".
+ */
+export function worldGroundHeight(x: number, z: number): number {
+  const local = houseLocal(x, z);
+
+  return houseGroundHeight(local.x, local.z) ?? terrainHeight(x, z);
+}
+
+/**
+ * Chỗ ngồi kèm khung hình ngắm cảnh: camera đứng sau-chéo người ngồi (`back`,
+ * `side`), cao `eye` trên mặt ghế, nhìn về phía trước `ahead` mét và cao
+ * `lookUp` trên mặt ghế.
+ */
+export interface SeatView extends Seat {
+  back: number;
+  side: number;
+  eye: number;
+  ahead: number;
+  lookUp: number;
+  fov: number;
+}
+
+/** Dữ liệu đi kèm đồ vật: tiếng khi chạm, hoặc một chỗ để ngồi. */
+export interface SpotData {
+  sfx?: AudioSlot;
+  seat?: SeatView;
+}
+
+const DOOR_CENTER = (HOUSE.doorFrom + HOUSE.doorTo) / 2;
+
+/**
+ * Đồ vật trong nhà — chạm vào thì chúng phản ứng, không có lời thoại nào.
+ *
+ * Cánh cửa với tới được từ cả hai phía (bán kính phủ qua tường), nên người
+ * chơi đứng trong nhà mở ra, đứng ngoài sân cũng đóng lại được.
+ */
+const INDOOR_SPOTS: Spot<SpotData>[] = [
   {
     id: "door",
-    x: YARD.door.x,
-    z: YARD.door.z,
-    radius: 3.6,
-    label: "Cửa nhà",
-    payload: {
-      id: "memory-door",
-      speaker: "Bạn",
-      text: "Mẹ vẫn hay đứng ở đúng cái cửa này gọi mình vào ăn cơm.",
-      emotion: "warm",
-      portrait: "child",
-    },
+    ...housePoint(DOOR_CENTER, HOUSE.depth / 2),
+    radius: 1.7,
+    label: "Cánh cửa",
+    payload: { sfx: "doorOpen" },
   },
   {
-    id: "tree",
-    x: YARD.tree.x,
-    z: YARD.tree.z,
-    radius: 3.8,
-    label: "Gốc cây",
-    payload: {
-      id: "memory-tree",
-      speaker: "Bạn",
-      text: "Cả lũ từng trèo lên đây, rồi bị mắng cho một trận.",
-      emotion: "nostalgic",
-      portrait: "friend",
-    },
+    id: "lamp",
+    ...housePoint(-0.2, 0),
+    radius: 1.5,
+    label: "Đèn dầu",
   },
   {
-    id: "pond",
-    x: YARD.pond.x - 3.2,
-    z: YARD.pond.z + 1.6,
-    radius: 3.6,
-    label: "Cái ao",
+    id: "chest",
+    ...housePoint(2.5, -1.7),
+    radius: 1.3,
+    label: "Rương gỗ",
+  },
+  {
+    id: "window",
+    ...housePoint(WINDOW_SEAT.x, WINDOW_SEAT.z),
+    radius: 1.1,
+    label: "Ngồi bên cửa sổ",
     payload: {
-      id: "memory-pond",
-      speaker: "Bạn",
-      text: "Mùa nước lên cả lũ ra đây bắt cá rô, ướt hết cả áo mà không đứa nào chịu về.",
-      emotion: "warm",
-      portrait: "child",
+      seat: {
+        ...housePoint(WINDOW_SEAT.x, WINDOW_SEAT.z),
+        // Quay mặt ra cửa sổ hông (+X cục bộ của nhà).
+        yaw: Math.PI / 2 + HOUSE_ROTATION,
+        height: WINDOW_SEAT.height,
+        back: 1.15,
+        side: 0.4,
+        eye: 0.85,
+        ahead: 9,
+        lookUp: 1.05,
+        fov: 52,
+      },
     },
   },
 ];
+
+/** Băng ghế ngoài sân, quay mặt về phía cái ao. */
+const BENCH = { x: 12.6, z: -1.2, yaw: Math.atan2(YARD.pond.x - 12.6, YARD.pond.z + 1.2) };
+
+const BENCH_SPOT: Spot<SpotData> = {
+  id: "bench",
+  x: BENCH.x,
+  z: BENCH.z,
+  radius: 1.6,
+  label: "Ngồi ngắm ao",
+  payload: {
+    seat: {
+      ...BENCH,
+      height: BENCH_SEAT_HEIGHT,
+      back: 2.4,
+      side: 0.7,
+      eye: 1.1,
+      ahead: 14,
+      lookUp: 0.3,
+      fov: 56,
+    },
+  },
+};
+
+/** Chỗ nhân vật tỉnh dậy: giữa nhà, quay mặt về phía cửa. */
+const SPAWN = housePoint(-0.9, 1.3);
 
 /**
  * Bãi cỏ trống — chỗ thả diều.
@@ -97,41 +195,18 @@ const MEMORY_SPOTS = [
  * nên không tính vào số hồi ký và chơi lại lần nào cũng được. Chọn chỗ này vì
  * nó trống đúng bốn hướng cần thiết: không cây, không nhà, không dây phơi.
  */
-const KITE_SPOT = {
+const KITE_SPOT: Spot<SpotData> = {
   id: "kite",
   x: 6,
   z: 11,
   radius: 3.2,
   label: "Thả diều",
   activity: "kite",
-} as const;
-
-/**
- * Điểm kịch bản của sân — xuất ra ngoài để TEST đối chiếu với story.json.
- *
- * Nhịp `walk`/`pan` gọi điểm bằng TÊN; gõ sai một chữ thì lỗi chỉ nổ ra lúc
- * người chơi tới đúng nhịp đó, giữa buổi chơi. Có bảng này thì test bắt được
- * ngay lúc chạy `npm test`, và bảng cũng là chỗ duy nhất khai báo toạ độ.
- */
-export const YARD_WALK_POINTS: Record<string, { x: number; z: number }> = {
-  gate: { x: YARD.gate.x, z: YARD.gate.z },
-  well: { x: YARD.well.x + 2.4, z: YARD.well.z + 1.6 },
-  house: { x: YARD.door.x, z: YARD.door.z },
-  yard: { x: 0.5, z: 6.5 },
-  kite: { x: KITE_SPOT.x - 0.4, z: KITE_SPOT.z - 1.2 },
-};
-
-export const YARD_PAN_POINTS: Record<
-  string,
-  { x: number; y: number; z: number }
-> = {
-  house: { x: YARD.house.x, y: 2.2, z: YARD.house.z },
-  well: { x: YARD.well.x, y: 1.6, z: YARD.well.z },
-  sky: { x: 0, y: 14, z: 24 },
-  yard: { x: 0, y: 1.2, z: 6 },
 };
 
 export function createChildhoodYard(services: WorldServices): LocationRuntime {
+  const { engine } = services;
+
   const group = new THREE.Group();
 
   group.name = "childhood-yard";
@@ -139,7 +214,7 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
   // ── Trời chiều muộn ─────────────────────────────────────────────────────
   const sky = new Sky(SKY_PRESETS.goldenHour);
 
-  sky.applyFog(services.engine.scene);
+  sky.applyFog(engine.scene);
   group.add(sky.group);
 
   // ── Đất, cỏ, hoa ────────────────────────────────────────────────────────
@@ -151,8 +226,22 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
   const house = createHouse();
 
   house.position.set(YARD.house.x, 0, YARD.house.z);
-  house.rotation.y = 0.06;
+  house.rotation.y = HOUSE_ROTATION;
   group.add(house);
+
+  const door = house.getObjectByName(HOUSE_PARTS.door) as THREE.Object3D;
+  const chestLid = house.getObjectByName(HOUSE_PARTS.chestLid) as THREE.Object3D;
+  const lampLight = house.getObjectByName(HOUSE_PARTS.lampLight) as THREE.PointLight;
+  const lampBulb = house.getObjectByName(HOUSE_PARTS.lampBulb) as THREE.Mesh<
+    THREE.BufferGeometry,
+    THREE.MeshStandardMaterial
+  >;
+
+  const lampPower = lampLight.intensity;
+  const bulbGlow = lampBulb.material.emissiveIntensity;
+
+  /** Trạng thái đồ vật — `update()` cho từng món trôi dần về đích. */
+  const props = { doorOpen: false, chestOpen: false, lampOn: true };
 
   // ── Giếng ───────────────────────────────────────────────────────────────
   const well = createWell();
@@ -216,6 +305,13 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
     group.add(stack);
   }
 
+  // ── Băng ghế ngắm ao ────────────────────────────────────────────────────
+  const bench = createBench();
+
+  bench.position.set(BENCH.x, terrainHeight(BENCH.x, BENCH.z), BENCH.z);
+  bench.rotation.y = BENCH.yaw;
+  group.add(bench);
+
   // ── Dây phơi ────────────────────────────────────────────────────────────
   const clothesLine = createClothesLine();
 
@@ -230,57 +326,77 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
   school.scale.setScalar(1.6);
   group.add(school);
 
+  // ── Con diều nằm chờ trên cỏ ────────────────────────────────────────────
+  //
+  // Yêu cầu "thoát ra thì diều phải được reset lại vị trí ban đầu trong sân"
+  // chỉ có nghĩa nếu trong sân CÓ một con diều để nhìn thấy. Nên nó nằm đây,
+  // đúng chỗ điểm tương tác, và `WorldGame` giấu nó đi trong lúc người chơi
+  // đang thả — rồi hiện lại khi ván kết thúc.
+  const kite = createKiteModel();
+
+  kite.group.position.set(KITE_SPOT.x, 0.07, KITE_SPOT.z);
+  // Nằm sấp trên cỏ, hơi xoay: đúng dáng một con diều vừa được đặt xuống.
+  kite.group.rotation.set(-1.32, 0.55, 0.16);
+  group.add(kite.group);
+
   // ── Nhân vật ────────────────────────────────────────────────────────────
-  const obstacles = buildColliders();
+  const obstacles = buildColliders(house);
+
+  // Cửa đóng thì khoảng cửa cũng là tường; mở ra thì lối đi thông.
+  const doorObstacles = rotateObstacles(createDoorObstacles(), {
+    x: house.position.x,
+    z: house.position.z,
+    rotation: house.rotation.y,
+  });
+
+  const bounds = { minX: -46, maxX: 46, minZ: -46, maxZ: 46 };
 
   const character = new Character({
     variant: "player",
-    x: 0.5,
-    z: 6.5,
-    yaw: Math.PI,
-    obstacles,
-    bounds: { minX: -46, maxX: 46, minZ: -46, maxZ: 46 },
+    x: SPAWN.x,
+    z: SPAWN.z,
+    // Quay mặt ra cửa (mặt tiền nhà là hướng +Z cục bộ).
+    yaw: HOUSE_ROTATION,
+    obstacles: [...obstacles, ...doorObstacles],
+    bounds,
     radius: 0.36,
+    groundHeight: worldGroundHeight,
   });
 
   group.add(character.root);
 
+  const interact = (id: string) => {
+    if (id === "door") {
+      props.doorOpen = !props.doorOpen;
+      character.setObstacles(
+        props.doorOpen ? obstacles : [...obstacles, ...doorObstacles],
+        bounds,
+      );
+    } else if (id === "chest") {
+      props.chestOpen = !props.chestOpen;
+    } else if (id === "lamp") {
+      props.lampOn = !props.lampOn;
+    }
+  };
+
   return {
-    name: "ChildhoodScene",
-    heading: {
-      index: 2,
-      title: "Ngày ấy",
-      subtitle: "một chiều tuổi thơ chưa tắt nắng",
-      time: "17:42",
-    },
-    story: "childhood",
     group,
     character,
-    spots: [...MEMORY_SPOTS, KITE_SPOT],
-    walkPoints: YARD_WALK_POINTS,
+    // Con diều nằm trong sân — bối cảnh đưa nó ra để `WorldGame` giấu/hiện.
+    kite: kite.group,
+    spots: [...INDOOR_SPOTS, BENCH_SPOT, KITE_SPOT],
+    interact,
     // Diều bay ra đằng sau hàng rào, về phía đông nam — hướng duy nhất trong
     // sân không có mái nhà che khuất tầm nhìn.
     kiteForward: { x: 0.34, z: 0.94 },
-    // Nhặt hết hồi ký rồi thì buổi chiều khép lại bằng câu này.
-    epilogue: {
-      id: "childhood-epilogue",
-      speaker: "Bạn",
-      text: "Nắng tắt sau rặng tre. Giá mà ngày mai mình vẫn còn được đứng ở đây.",
-      emotion: "nostalgic",
-      portrait: "child",
-    },
-    panPoints: YARD_PAN_POINTS,
-    // Camera ở phía cổng (nam) nhìn vào nhà: cảnh mở đầu phải thấy mái ngói
-    // trước khi thấy bất cứ thứ gì khác.
-    rig: { distance: 7.4, height: 1.0, pitch: 0.36, yaw: 0 },
-    // Gốc cây cao gần gấp đôi nhà nên nhãn phải nâng lên, nếu không nó nằm
-    // trong thân cây.
-    badgeHeight: { well: 2.9, door: 2.6, tree: 4.3, pond: 2.4, kite: 2.6 },
-    footstepSlot: "childFootsteps" as AudioSlot,
-    spatialSources: {
-      // Tiếng trống trường phải đến TỪ trường, không phải từ trong đầu người chơi.
-      schoolBell: { x: YARD.school.x, y: 12, z: YARD.school.z },
-    },
+    // Cần gạt của camera không bay xuyên nhà: cùng danh sách vật cản với
+    // nhân vật, nên hai thứ không bao giờ "thấy" hai thế giới khác nhau.
+    colliders: obstacles,
+    // Camera sau lưng nhân vật (đang quay mặt ra cửa), đủ gần để không chọc
+    // qua tường hậu của căn phòng.
+    rig: { distance: 4.2, height: 1.0, pitch: 0.3, yaw: HOUSE_ROTATION + Math.PI },
+    badgeHeight: { door: 2.7, lamp: 2.9, chest: 1.6, window: 2.2, bench: 1.8, kite: 2.6 },
+    footstepSlot: "childFootsteps",
     update: (dt, elapsed) => {
       sky.update(dt, elapsed);
       sky.focusShadows(character.position.x, character.position.z);
@@ -288,6 +404,18 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
       for (const swayer of swayers) {
         swayer.object.rotation.z = Math.sin(elapsed * 0.75 + swayer.phase) * 0.014;
       }
+
+      // Đồ vật trôi về trạng thái mới theo hàm mũ: cửa quay trên bản lề, nắp
+      // rương bật lên, đèn tắt dần — không món nào nhảy trạng thái.
+      door.rotation.y = damp(door.rotation.y, props.doorOpen ? -1.95 : 0, 5, dt);
+      chestLid.rotation.x = damp(chestLid.rotation.x, props.chestOpen ? -1.1 : 0, 7, dt);
+      lampLight.intensity = damp(lampLight.intensity, props.lampOn ? lampPower : 0, 6, dt);
+      lampBulb.material.emissiveIntensity = damp(
+        lampBulb.material.emissiveIntensity,
+        props.lampOn ? bulbGlow : 0,
+        6,
+        dt,
+      );
     },
   };
 }
@@ -298,16 +426,30 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
  * Hàng rào được rải nhiều hình tròn nhỏ dọc theo chiều dài — người chơi không
  * lách qua khe giữa hai cọc được, mà chi phí thì không đáng kể (chỉ là vài
  * phép hypot mỗi frame).
+ *
+ * Ngôi nhà cũng theo đúng cách đó, nhưng vì một lý do khác hẳn: nó KHÔNG còn
+ * là một khối đặc. Bốn bức tường là bốn dãy cọc, mặt tiền chừa khoảng cửa, nên
+ * người chơi vừa không xuyên được tường, vừa đi vào nhà được.
  */
-function buildColliders() {
-  const colliders: { x: number; z: number; radius: number }[] = [];
+function buildColliders(house: THREE.Group): Obstacle[] {
+  const colliders: Obstacle[] = [];
 
   for (const [x, z] of YARD.trees) {
     colliders.push({ x, z, radius: 0.55 });
   }
 
   colliders.push({ x: YARD.tree.x, z: YARD.tree.z, radius: 0.8 });
-  colliders.push({ x: YARD.house.x, z: YARD.house.z, radius: 4.7 });
+
+  // Tường nhà: toạ độ cục bộ của `Props`, đưa sang toạ độ sân bằng đúng phép
+  // biến đổi đã dùng để ĐẶT ngôi nhà.
+  colliders.push(
+    ...rotateObstacles(createHouseObstacles(), {
+      x: house.position.x,
+      z: house.position.z,
+      rotation: house.rotation.y,
+    }),
+  );
+
   colliders.push({ x: YARD.well.x, z: YARD.well.z, radius: 1.15 });
   colliders.push({ x: YARD.pond.x, z: YARD.pond.z, radius: 3.3 });
 
@@ -330,6 +472,16 @@ function buildColliders() {
     z: YARD.clothesLine.z,
     radius: 0.5,
   });
+
+  // Băng ghế: chỉ hai đầu ghế chặn, khoảng giữa chừa cho người ngồi — đứng
+  // dậy khỏi ghế thì không bị đẩy văng ra.
+  for (const end of [-0.72, 0.72]) {
+    colliders.push({
+      x: BENCH.x + Math.cos(BENCH.yaw) * end,
+      z: BENCH.z - Math.sin(BENCH.yaw) * end,
+      radius: 0.26,
+    });
+  }
 
   return colliders;
 }

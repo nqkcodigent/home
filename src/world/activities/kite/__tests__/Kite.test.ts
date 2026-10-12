@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
-import { kiteWorldPosition } from "../Kite";
+import { KiteField, createKiteModel, kiteWorldPosition } from "../Kite";
 import { describeKiteResult } from "../KiteActivity";
 import { createKiteState, DEFAULT_KITE } from "../model";
 
@@ -74,29 +74,98 @@ describe("kiteWorldPosition", () => {
   });
 });
 
+describe("createKiteModel", () => {
+  it("mỗi lần gọi là một con diều RIÊNG — sân và ván diều không dùng chung hình", () => {
+    const onGrass = createKiteModel();
+    const flying = createKiteModel();
+
+    expect(onGrass.group).not.toBe(flying.group);
+    expect(onGrass.tail.length).toBeGreaterThan(0);
+
+    // Cả hai đều là hình khối thật, không phải một nhóm rỗng.
+    let meshes = 0;
+
+    onGrass.group.traverse((child) => {
+      if (child instanceof THREE.Mesh) meshes += 1;
+    });
+
+    expect(meshes).toBeGreaterThan(3);
+
+    onGrass.dispose();
+    flying.dispose();
+  });
+});
+
+describe("KiteField — bầu trời trong", () => {
+  function materials(field: KiteField): THREE.Material[] {
+    const found: THREE.Material[] = [];
+
+    field.group.traverse((child) => {
+      if (!(child instanceof THREE.Mesh) && !(child instanceof THREE.Line)) return;
+
+      const list = Array.isArray(child.material) ? child.material : [child.material];
+
+      found.push(...(list as THREE.Material[]));
+    });
+
+    return found;
+  }
+
+  it("không còn vật liệu cộng sáng nào — đó là thứ tạo ra cột sáng", () => {
+    const field = new KiteField();
+
+    for (const material of materials(field)) {
+      expect(material.blending).not.toBe(THREE.AdditiveBlending);
+    }
+
+    field.dispose();
+  });
+
+  it("trên trời chỉ có con diều — không cột sáng, không dấu vết che tầm nhìn", () => {
+    const field = new KiteField();
+
+    // Ngoài con diều và sợi dây, nhóm không còn gì khác.
+    expect(field.group.children).toHaveLength(2);
+
+    field.dispose();
+  });
+});
+
 describe("describeKiteResult", () => {
   const base: KiteState = { ...createKiteState(), score: 412.6, best: 38.4 };
 
-  it("ba cách kết thúc cho ba lời khác nhau", () => {
-    const titles = (["snapped", "landed", "timeout"] as const).map(
+  it("hai cách kết thúc cho hai lời khác nhau", () => {
+    const titles = (["snapped", "stowed"] as const).map(
       (outcome) => describeKiteResult({ ...base, over: true, outcome }).title,
     );
 
-    expect(new Set(titles).size).toBe(3);
+    expect(new Set(titles).size).toBe(2);
   });
 
   it("giữ nguyên điểm và độ cao cao nhất, đã làm tròn", () => {
-    const result = describeKiteResult({ ...base, over: true, outcome: "timeout" });
+    const result = describeKiteResult({ ...base, over: true, outcome: "stowed" });
 
     expect(result.score).toBe(413);
     expect(result.bestAltitude).toBe(38);
-    expect(result.outcome).toBe("timeout");
+    expect(result.outcome).toBe("stowed");
   });
 
-  it("chưa có kết quả thì coi như hết giờ — không bao giờ trả về undefined", () => {
+  it("dây đứt rồi mà người chơi cất diều thì nhắc tới chuyện đi lạc", () => {
+    const result = describeKiteResult({
+      ...base,
+      over: true,
+      outcome: "snapped",
+      snapAt: 22,
+    });
+
+    expect(result.title).toBe("Đứt dây");
+    expect(result.detail).toContain("trôi");
+  });
+
+  it("chưa có kết quả thì coi như cất diều — không bao giờ trả về undefined", () => {
     const result = describeKiteResult(base);
 
-    expect(result.outcome).toBe("timeout");
+    expect(result.outcome).toBe("stowed");
     expect(result.detail.length).toBeGreaterThan(0);
   });
 });

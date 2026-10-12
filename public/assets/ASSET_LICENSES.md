@@ -21,6 +21,14 @@
 
 CC0 assets do not require attribution, although attribution is appreciated.
 
+### Tự sinh (không cần giấy phép)
+
+- `ambience/kite-fly.wav`, `ambience/candle-shop.wav` — sinh bằng
+  `node scripts/make-ambience.mjs`. Không lấy từ file nào: gió, sáo diều, tiếng
+  lách tách của nến đều được tính bằng công thức (nhiễu đã lọc + sóng sine),
+  rồi trộn đuôi vào đầu để vòng lặp liền mạch. Chạy lại lệnh trên là ra đúng
+  file cũ, nên không có gì phải tải về và không có điều kiện giấy phép nào.
+
 ## Orange Free Sounds
 
 Some audio files in this package are CC BY 4.0 and some are CC BY-NC 4.0.

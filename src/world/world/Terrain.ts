@@ -14,6 +14,18 @@ import { terrainHeight } from "../terrain/heightfield";
  * Cỏ và hoa dùng InstancedMesh — 800 bụi cỏ là 1 draw call, không phải 800.
  */
 
+/** Gió nhẹ thường ngày khi không thả diều. */
+export const GRASS_CALM_WIND = 0.25;
+
+/**
+ * Uniform dùng chung cho mọi bãi cỏ: ván diều đặt `wind` theo sức gió của
+ * mô phỏng, xong ván thì trả về `GRASS_CALM_WIND`.
+ */
+export const GRASS_SWAY = {
+  time: { value: 0 },
+  wind: { value: GRASS_CALM_WIND },
+};
+
 const GRASS_LIGHT = new THREE.Color(0x8ec96a);
 const GRASS_DARK = new THREE.Color(0x6ba84c);
 const DIRT = new THREE.Color(0xc9a273);
@@ -125,11 +137,32 @@ export class Terrain {
     // Gốc nón nằm ở tâm: dời lên để chân cỏ nằm trên mặt đất.
     geometry.translate(0, 0.17, 0);
 
-    const mesh = new THREE.InstancedMesh(
-      geometry,
-      new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0 }),
-      grassCount,
-    );
+    const material = new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0 });
+
+    // Ngọn cỏ lệch theo gió, gốc đứng yên (lệch tỉ lệ bình phương độ cao).
+    // Pha lấy theo vị trí từng bụi nên cả bãi gợn như sóng, không lắc đồng loạt.
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = GRASS_SWAY.time;
+      shader.uniforms.uWind = GRASS_SWAY.wind;
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nuniform float uTime;\nuniform float uWind;")
+        .replace(
+          "#include <begin_vertex>",
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            float phase = instanceMatrix[3].x * 0.35 + instanceMatrix[3].z * 0.25;
+            float bend = (sin(uTime * 2.2 + phase) + 0.4 * sin(uTime * 5.1 + phase * 2.0)) * uWind;
+            float tip = transformed.y / 0.34;
+            transformed.x += bend * tip * tip * 0.12;
+          #endif`,
+        );
+    };
+
+    const mesh = new THREE.InstancedMesh(geometry, material, grassCount);
+
+    mesh.onBeforeRender = () => {
+      GRASS_SWAY.time.value = performance.now() / 1000;
+    };
 
     const random = createRandom(seed);
     const matrix = new THREE.Matrix4();

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   Announce,
-  ChapterCard,
   DialogBox,
   GameHUD,
   Joystick,
@@ -12,16 +11,7 @@ import {
 import { gameEvents } from "./events";
 import { worldGame } from "./world/WorldGame";
 
-import type { ChapterState } from "./components/ChapterCard";
-import type {
-  DialogPayload,
-  HudPayload,
-  KiteHudPayload,
-  KiteResultPayload,
-} from "./events";
-
-/** Thời gian thẻ chương nằm trên màn hình (ms) */
-const CHAPTER_CARD_MS = 4200;
+import type { DialogPayload, KiteHudPayload, KiteResultPayload } from "./events";
 
 /** Thời gian bảng kết quả ván diều nằm trên màn hình (ms) */
 const KITE_RESULT_MS = 5200;
@@ -33,15 +23,45 @@ export default function App() {
 
   const [dialog, setDialog] = useState<DialogPayload | undefined>();
 
-  const [hud, setHud] = useState<HudPayload | undefined>();
-
-  const [chapter, setChapter] = useState<ChapterState | undefined>();
-
   const [controls, setControls] = useState(false);
 
   const [kite, setKite] = useState<KiteHudPayload | undefined>();
 
   const [kiteResult, setKiteResult] = useState<KiteResultPayload | undefined>();
+
+  const [lookLocked, setLookLocked] = useState(false);
+
+  // Chế độ ngắm cảnh: ẩn hết giao diện, chỉ còn thế giới (phím H hoặc nút mắt).
+  const [scenic, setScenic] = useState(false);
+
+  useEffect(() => {
+    if (!started) return undefined;
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.code === "KeyH" && !event.repeat) setScenic((value) => !value);
+    };
+
+    window.addEventListener("keydown", handleKey);
+
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [started]);
+
+  // Báo bằng lời mỗi lần bật/tắt — giao diện biến mất mà không nói gì thì
+  // người chơi tưởng game hỏng.
+  const firstScenic = useRef(true);
+
+  useEffect(() => {
+    if (firstScenic.current) {
+      firstScenic.current = false;
+
+      return;
+    }
+
+    gameEvents.emit("notice", {
+      text: scenic ? "Chế độ ngắm cảnh · H để hiện lại giao diện" : "Đã hiện lại giao diện",
+      hold: scenic ? 2400 : 1400,
+    });
+  }, [scenic]);
 
   // Dựng engine NGAY khi bấm Bắt đầu: một cú bấm là điều kiện để trình duyệt
   // cho phát âm thanh, nên thế giới chỉ khởi động sau đó.
@@ -53,18 +73,7 @@ export default function App() {
     worldGame.start(container);
   }, [started]);
 
-  // Thẻ chương tự tắt sau ít giây
-  useEffect(() => {
-    if (!chapter) {
-      return undefined;
-    }
-
-    const timer = window.setTimeout(() => setChapter(undefined), CHAPTER_CARD_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [chapter]);
-
-  // Bảng kết quả ván diều tự tắt — cùng nhịp với thẻ chương, và cũng do đây
+  // Bảng kết quả ván diều tự tắt — và cũng do đây
   // quyết định chứ không nằm trong minigame: minigame không nên biết UI hiển
   // thị bao lâu.
   useEffect(() => {
@@ -85,13 +94,6 @@ export default function App() {
 
     const offClose = gameEvents.on("dialogClose", () => setDialog(undefined));
 
-    // hud là patch: chỉ gửi phần thay đổi (vd: số hồi ký)
-    const offHud = gameEvents.on("hud", (data) =>
-      setHud((previous) => ({ ...previous, ...data })),
-    );
-
-    const offChapter = gameEvents.on("chapter", (data) => setChapter(data));
-
     const offControls = gameEvents.on("controls", (data) =>
       setControls(data.enabled),
     );
@@ -105,39 +107,61 @@ export default function App() {
       setKiteResult(data),
     );
 
+    const offLook = gameEvents.on("look", ({ locked }) => setLookLocked(locked));
+
     return () => {
       offDialog();
       offClose();
-      offHud();
-      offChapter();
       offControls();
       offKite();
       offKiteResult();
+      offLook();
     };
   }, []);
 
   return (
-    <main className="game">
+    <main className={`game${scenic ? " is-scenic" : ""}`}>
       <div className="game__world" ref={containerRef} />
 
       <div className="game__vignette" aria-hidden="true" />
 
       <GameHUD
-        time={hud?.time}
-        chapter={hud?.chapter}
         hint={controls}
-        memories={hud?.memories}
-        total={hud?.total}
+        lookLocked={lookLocked}
+        // Nút Trợ giúp chỉ có khi người chơi đang cầm lái: xem chú thích trong
+        // `GameHUD`.
+        onHelp={controls ? () => gameEvents.emit("help", undefined) : undefined}
       />
 
-      <ChapterCard card={chapter} />
-
       <Announce />
+
+      {started && (
+        <button
+          type="button"
+          className={`scenic-toggle${scenic ? " is-on" : ""}`}
+          onClick={() => setScenic((value) => !value)}
+          aria-pressed={scenic}
+          aria-label={scenic ? "Hiện lại giao diện" : "Chế độ ngắm cảnh: ẩn giao diện"}
+          title="Ngắm cảnh (H)"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinejoin="round"
+            />
+            <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="2" />
+          </svg>
+        </button>
+      )}
 
       <KitePanel data={kite} result={kiteResult} />
 
       <Joystick />
 
+      {/* Hộp thoại CHỈ hiện khi người chơi tự gọi: bấm nút Trợ giúp. */}
       {dialog && (
         <DialogBox
           id={dialog.id}

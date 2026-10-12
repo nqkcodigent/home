@@ -84,4 +84,9 @@ describe("createAvatar", () => {
 
     expect(styles.size).toBe(4);
   });
+
+  it("nhân vật chính mặc áo len có khăn quàng; nhân vật phụ thì không", () => {
+    expect(createAvatar("player").scarfTail).toBeInstanceOf(THREE.Group);
+    expect(createAvatar("friend").scarfTail).toBeUndefined();
+  });
 });

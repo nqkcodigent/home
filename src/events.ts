@@ -6,25 +6,14 @@
  * một engine vào chỉ để lấy event bus là lý do tồi để giữ Phaser lại.
  */
 
+import type { KiteShotMode } from "./world/activities/kite/kiteCamera";
+
 export interface DialogPayload {
   id?: string;
   speaker?: string;
   text: string;
   emotion?: string;
   portrait?: string;
-}
-
-export interface HudPayload {
-  time?: string;
-  chapter?: string;
-  memories?: number;
-  total?: number;
-}
-
-export interface ChapterPayload {
-  index?: number;
-  title: string;
-  subtitle?: string;
 }
 
 export interface NoticePayload {
@@ -36,13 +25,14 @@ export interface NoticePayload {
 /**
  * Bảng đo của một ván thả diều.
  *
- * Gửi theo dạng PATCH như `hud`: chỉ phần thay đổi, React trộn vào bảng cũ.
+ * Gửi theo dạng PATCH: chỉ phần thay đổi, React trộn vào bảng cũ.
  * Nhờ vậy minigame chỉ phát một sự kiện mỗi lần số liệu đổi (chứ không phải
  * 60 lần mỗi giây), mà bảng vẫn luôn đúng.
  */
 export interface KiteHudPayload {
   visible: boolean;
-  phase?: "launch" | "flying" | "over";
+  /** `adrift` = dây đã đứt, diều đang trôi tự do */
+  phase?: "launch" | "flying" | "adrift" | "over";
   /** Điểm hiện có */
   score?: number;
   /** Độ cao của diều (mét) */
@@ -53,14 +43,22 @@ export interface KiteHudPayload {
   wind?: number;
   /** Hướng gió theo độ (0 = bắc) */
   windDirection?: number;
-  /** Thời gian còn lại (giây) */
-  timeLeft?: number;
+  /** Dây đang thả (mét) */
+  line?: number;
+  /** Đã bay bao lâu (giây) — ván diều không đếm ngược, chỉ đếm lên */
+  elapsed?: number;
+  /** Quãng đường diều đã trôi ngang sau khi đứt dây (mét) */
+  drift?: number;
   /** Số nhiệt lưu đã bắt được */
   thermals?: number;
+  /** Góc máy ĐANG dùng — có thể bị khoá bởi màn mở đầu hoặc lúc đứt dây */
+  view?: KiteShotMode;
+  /** Ván đã bay đủ lâu để nhắc người chơi cất diều (bấm phím thoát) */
+  hint?: boolean;
 }
 
 export interface KiteResultPayload {
-  outcome: "landed" | "snapped" | "timeout";
+  outcome: "snapped" | "stowed";
   score: number;
   bestAltitude: number;
   title: string;
@@ -71,12 +69,23 @@ export interface GameEventMap {
   dialog: DialogPayload;
   dialogNext: undefined;
   dialogClose: undefined;
+  /** UI bấm nút Trợ giúp — xem `HELP_LINES` */
+  help: undefined;
+  /** Con trỏ chuột đang khoá vào khung game (nhìn bằng chuột) hay không */
+  look: { locked: boolean };
   controls: { enabled: boolean };
-  hud: HudPayload;
-  chapter: ChapterPayload;
   notice: NoticePayload;
   kite: KiteHudPayload;
   kiteResult: KiteResultPayload | undefined;
+  /** UI bấm nút đổi góc máy diều (bàn phím đi đường `Input`) */
+  kiteView: undefined;
+  /**
+   * UI bấm nút "thu diều" — bản cảm ứng của phím `R`.
+   *
+   * Cả hai cửa đều gộp về đúng một hàng đợi trong `Input`, nên ván diều
+   * không cần biết người chơi vừa bấm bàn phím hay chạm màn hình.
+   */
+  kiteExit: undefined;
 }
 
 type Handler<K extends keyof GameEventMap> = (payload: GameEventMap[K]) => void;
