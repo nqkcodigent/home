@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import { createAvatar } from "./avatar";
+import { disposeObject } from "../world/dispose";
 import {
   createMotionState,
   damp,
@@ -12,8 +13,8 @@ import {
 import { resolveCollisions } from "../physics/collide";
 import { terrainHeight } from "../terrain/heightfield";
 
-import type { AvatarRig, AvatarVariant } from "./avatar";
-import type { MotionInput, MotionState } from "./motion";
+import type { AvatarLook, AvatarRig, AvatarVariant } from "./avatar";
+import type { MotionInput, MotionState, MotionTuning } from "./motion";
 import type { Bounds, Obstacle } from "../physics/collide";
 
 /**
@@ -47,11 +48,15 @@ export interface CharacterOptions {
   radius?: number;
   /** Hệ số nhân độ cao — để hạ nhân vật xuống nếu cần */
   heightOffset?: number;
+  /** Trang phục đè lên dáng mặc định (xem `dress()`) */
+  look?: Partial<AvatarLook>;
   /**
    * Độ cao mặt nền tại (x, z). Mặc định là `terrainHeight`; thế giới có nhà
    * thì truyền hàm biết cả mặt sàn — nếu không chân sẽ lún xuống sàn nhà.
    */
   groundHeight?: (x: number, z: number) => number;
+  /** Bộ số đi/chạy — mặc định `DEFAULT_MOTION`; kỹ năng đi bộ đưa bản nới vào */
+  motion?: MotionTuning;
 }
 
 /** Chỗ ngồi — toạ độ thế giới; `height` là độ cao MẶT GHẾ (mét). */
@@ -107,6 +112,12 @@ interface CharacterAnim {
   actProgress: number;
   /** Trọng số dáng ngồi (0 đứng … 1 ngồi hẳn) */
   sit: number;
+  /** Trọng số dáng chống tay vào vật cản (0 … 1) */
+  press: number;
+  /** Trọng số + góc đã làm mượt của ánh nhìn (xem `setGaze`) */
+  gaze: number;
+  gazeYaw: number;
+  gazePitch: number;
 }
 
 /** Tốc độ blend vào/ra của lớp hành động (1/giây). */
@@ -132,7 +143,8 @@ const MOVING_SPEED = 0.06;
 export class Character {
   readonly root = new THREE.Group();
 
-  readonly rig: AvatarRig;
+  /** Hình nhân vật — đổi được bằng `dress()`, nên đừng giữ tham chiếu lâu. */
+  rig: AvatarRig;
 
   protected readonly options: Required<
     Pick<CharacterOptions, "radius" | "heightOffset">
@@ -140,6 +152,8 @@ export class Character {
     CharacterOptions;
 
   protected state: MotionState;
+
+  private groundSpeed = 0;
 
   private obstacles: readonly Obstacle[];
 
@@ -159,6 +173,10 @@ export class Character {
 
   private seat: SeatState | undefined;
 
+  private motion: MotionTuning;
+
+  private gaze: { x: number; y: number; z: number } | undefined;
+
   constructor(options: CharacterOptions) {
     this.options = {
       radius: 0.36,
@@ -169,9 +187,10 @@ export class Character {
     this.obstacles = options.obstacles ?? [];
     this.bounds = options.bounds;
     this.ground = options.groundHeight ?? terrainHeight;
+    this.motion = options.motion ?? DEFAULT_MOTION;
     this.footY = this.ground(options.x, options.z);
 
-    this.rig = createAvatar(options.variant);
+    this.rig = createAvatar(options.variant, options.look);
 
     this.state = createMotionState(options.x, options.z, options.yaw ?? 0);
 
@@ -189,6 +208,10 @@ export class Character {
       actKind: "reach",
       actProgress: 0,
       sit: 0,
+      press: 0,
+      gaze: 0,
+      gazeYaw: 0,
+      gazePitch: 0,
     };
 
     this.root.add(this.rig.root);
@@ -196,12 +219,28 @@ export class Character {
     this.root.rotation.y = this.state.yaw;
   }
 
+  /**
+   * Thay trang phục: dựng lại hình nhân vật với dáng mới. Vị trí, hướng, đà
+   * và mọi trọng số animation giữ nguyên — frame sau hình mới đã ở đúng tư
+   * thế cũ, nên đổi đồ không làm nhân vật "giật".
+   */
+  dress(look: Partial<AvatarLook>) {
+    const old = this.rig;
+
+    this.rig = createAvatar(this.options.variant, look);
+    this.rig.root.position.copy(old.root.position);
+    this.root.remove(old.root);
+    disposeObject(old.root);
+    this.root.add(this.rig.root);
+  }
+
   get position(): THREE.Vector3 {
     return this.root.position;
   }
 
+  /** Tốc độ thật trên mặt đất (m/s), đã trừ phần bị vật cản chặn. */
   get speed(): number {
-    return this.state.speed;
+    return this.groundSpeed;
   }
 
   setObstacles(obstacles: readonly Obstacle[], bounds?: Bounds) {
@@ -214,6 +253,20 @@ export class Character {
     this.anim.lastYaw = this.state.yaw;
     this.footY = this.ground(x, z);
     this.applyTransform(0);
+  }
+
+  /**
+   * Ngoái đầu nhìn theo một điểm (con diều, món đồ trước mặt) — chỉ cái đầu,
+   * thân vẫn đi đúng hướng. Giữ THAM CHIẾU: truyền một vector đang chạy là đầu
+   * bám theo nó mỗi frame. `undefined` là thôi nhìn.
+   */
+  setGaze(point: { x: number; y: number; z: number } | undefined) {
+    this.gaze = point;
+  }
+
+  /** Đổi bộ số đi/chạy (kỹ năng vừa mở) — có tác dụng từ frame sau. */
+  setMotion(motion: MotionTuning) {
+    this.motion = motion;
   }
 
   /** Dừng lại ngay — dùng khi điều khiển bị khoá giữa lúc đang chạy. */
@@ -352,7 +405,7 @@ export class Character {
       const dx = seat.x - this.state.x;
       const dz = seat.z - this.state.z;
       const distance = Math.hypot(dx, dz);
-      const step = Math.min(distance, DEFAULT_MOTION.walkSpeed * 0.8 * dt);
+      const step = Math.min(distance, this.motion.walkSpeed * 0.8 * dt);
 
       // Còn xa thì nhìn về phía ghế mà đi; tới sát rồi thì xoay về hướng ngồi.
       const heading = distance > 0.25 ? Math.atan2(dx, dz) : seat.yaw;
@@ -362,7 +415,7 @@ export class Character {
         z: this.state.z + (distance > 1e-6 ? (dz / distance) * step : 0),
         yaw: dampAngle(this.state.yaw, heading, 9, dt),
         speed: dt > 0 ? step / dt : 0,
-        gaitPhase: (this.state.gaitPhase + step * DEFAULT_MOTION.stridesPerMetre) % 1,
+        gaitPhase: (this.state.gaitPhase + step * this.motion.stridesPerMetre) % 1,
       };
 
       const facing = Math.abs(shortestAngle(this.state.yaw, seat.yaw)) < 0.08;
@@ -403,21 +456,22 @@ export class Character {
       this.bounds,
     );
 
-    // Vị trí lấy theo kết quả va chạm để không bị đẩy ngược lại vào vật thể.
-    const blocked = resolved.x !== step.state.x || resolved.z !== step.state.z;
-
-    this.state = {
-      ...step.state,
-      x: resolved.x,
-      z: resolved.z,
-      // Bị chặn thì mất tốc độ — nếu không, nhân vật "trượt" dọc tường như băng.
-      speed: blocked ? step.state.speed * 0.4 : step.state.speed,
-    };
+    // `state.speed` giữ tốc độ Ý ĐỊNH (để gia tốc không bị va chạm ăn mòn dần
+    // mỗi frame); dáng chân đọc `groundSpeed` — quãng đường thật sau va chạm —
+    // ở `applyTransform`, nên đâm thẳng vào tường thì đứng, chạm xiên thì trượt.
+    this.state = { ...step.state, x: resolved.x, z: resolved.z };
 
     this.applyTransform(dt);
   }
 
   private applyTransform(dt: number) {
+    const moved = Math.hypot(
+      this.state.x - this.root.position.x,
+      this.state.z - this.root.position.z,
+    );
+
+    this.groundSpeed = dt > 0 ? Math.min(moved / dt, this.state.speed) : 0;
+
     const ground = this.ground(this.state.x, this.state.z);
 
     this.footY = dt > 0 ? damp(this.footY, ground, FOOT_RATE, dt) : ground;
@@ -432,7 +486,7 @@ export class Character {
   }
 
   private animate(dt: number, elapsed: number) {
-    const speed = this.state.speed;
+    const speed = this.groundSpeed;
     const moving = speed > MOVING_SPEED;
 
     // ── Ba trọng số dáng đi ────────────────────────────────────────────────
@@ -442,10 +496,10 @@ export class Character {
 
     // Chạy chỉ bắt đầu khi đã vượt tốc độ đi bộ, và chuyển mượt trong khoảng
     // giữa hai tốc độ đó.
-    const runFrom = DEFAULT_MOTION.walkSpeed * 0.92;
+    const runFrom = this.motion.walkSpeed * 0.92;
 
     const runTarget = clamp01(
-      (speed - runFrom) / (DEFAULT_MOTION.runSpeed - runFrom),
+      (speed - runFrom) / (this.motion.runSpeed - runFrom),
     );
 
     this.anim.run = damp(this.anim.run, moving ? runTarget : 0, 7, dt);
@@ -455,7 +509,7 @@ export class Character {
     const idle = 1 - blend;
 
     const phase = this.state.gaitPhase * Math.PI * 2;
-    const speedRatio = Math.min(speed / DEFAULT_MOTION.runSpeed, 1);
+    const speedRatio = Math.min(speed / this.motion.runSpeed, 1);
 
     // ── Chân và gối ────────────────────────────────────────────────────────
     const stride = 0.42 + speedRatio * 0.6;
@@ -524,20 +578,77 @@ export class Character {
       -blend * (0.05 + run * 0.05) + idle * Math.sin(elapsed * 1.7) * 0.02;
     this.rig.head.rotation.z = -this.rig.body.rotation.z * 0.6;
 
-    // Đuôi khăn: rủ xuống khi đứng, bay ra sau theo tốc độ và phần phật nhẹ.
-    if (this.rig.scarfTail) {
-      this.rig.scarfTail.rotation.x =
-        0.08 +
-        speedRatio * 0.95 * blend +
-        Math.sin(elapsed * (4 + speedRatio * 9)) * (0.03 + speedRatio * 0.12) +
-        idle * Math.sin(elapsed * 1.1) * 0.03;
-      this.rig.scarfTail.rotation.z = Math.sin(elapsed * 2.3) * 0.05 * (0.3 + speedRatio);
+    // Đồ lủng lẳng (đuôi khăn, lọn tóc, móc khoá): rủ xuống khi đứng, bay ra
+    // sau theo tốc độ và phần phật nhẹ — mỗi món lệch pha để không đồng loạt.
+    this.rig.trailing.forEach((piece, index) => {
+      const sway = piece.userData.sway as number;
+      const flutter = elapsed * (4 + speedRatio * 9) + index * 1.7;
+
+      piece.rotation.x =
+        sway *
+        (0.08 +
+          speedRatio * 0.95 * blend +
+          Math.sin(flutter) * (0.03 + speedRatio * 0.12) +
+          idle * Math.sin(elapsed * 1.1 + index) * 0.03);
+      piece.rotation.z = sway * Math.sin(elapsed * 2.3 + index) * 0.05 * (0.3 + speedRatio);
+    });
+
+    // ── Chống tay vào vật cản ──────────────────────────────────────────────
+    // Muốn đi mà vật cản không cho đi: hai tay đưa ra chống, người chúi vào.
+    // Sượt xiên thì gần như không (phần tốc độ mất ít), đâm thẳng thì rõ.
+    const pressTarget = clamp01((this.state.speed - speed - 0.4) / 1.4);
+
+    this.anim.press = damp(this.anim.press, pressTarget, pressTarget > this.anim.press ? 14 : 6, dt);
+
+    const press = this.anim.press;
+
+    if (press > 1e-3) {
+      const mix = (from: number, to: number) => from + (to - from) * press;
+
+      this.rig.armL.rotation.x = mix(this.rig.armL.rotation.x, -1.25);
+      this.rig.armR.rotation.x = mix(this.rig.armR.rotation.x, -1.25);
+      this.rig.elbowL.rotation.x = mix(this.rig.elbowL.rotation.x, -0.45);
+      this.rig.elbowR.rotation.x = mix(this.rig.elbowR.rotation.x, -0.45);
+      this.rig.body.rotation.x += press * 0.14;
+      this.rig.head.rotation.x -= press * 0.1;
     }
 
     this.applySitPose(dt, elapsed);
     this.applyActionPose(dt, elapsed);
+    this.applyGaze(dt);
 
     this.updateBlink(dt);
+  }
+
+  /** Đầu quay về điểm đang nhìn, kẹp trong tầm cổ người thật. */
+  private applyGaze(dt: number) {
+    const target = this.gaze;
+
+    this.anim.gaze = damp(this.anim.gaze, target ? 1 : 0, target ? 5 : 3, dt);
+
+    if (target) {
+      const dx = target.x - this.state.x;
+      const dz = target.z - this.state.z;
+      const yaw = clamp(shortestAngle(this.state.yaw, Math.atan2(dx, dz)), -1.1, 1.1);
+      const pitch = clamp(
+        Math.atan2(target.y - (this.root.position.y + 1.1), Math.hypot(dx, dz)),
+        -0.35,
+        0.85,
+      );
+
+      this.anim.gazeYaw = damp(this.anim.gazeYaw, yaw, 6, dt);
+      this.anim.gazePitch = damp(this.anim.gazePitch, pitch, 6, dt);
+    }
+
+    const weight = this.anim.gaze;
+
+    if (weight < 1e-3) return;
+
+    const head = this.rig.head.rotation;
+
+    head.y += (this.anim.gazeYaw - head.y) * weight;
+    // Ngẩng lên là xoay âm quanh X (xem dáng chạy: chúi tới là dương).
+    head.x += (-this.anim.gazePitch * 0.8 - head.x) * weight;
   }
 
   /**
@@ -564,16 +675,21 @@ export class Character {
 
     rig.root.position.y = mix(rig.root.position.y, lift);
 
+    // Chân chibi ngắn hơn mặt ghế: cẳng chân chìa ra trước-xuống, buông thẳng
+    // thì bàn chân nằm ngang mặt ghế, trông như quỳ. Chân dài (người cao)
+    // thì buông thẳng xuống như người ngồi ghế thật.
+    const kneeBend = lift < 0 ? 1.35 : 0.6;
+
     for (const [leg, knee] of [
       [rig.legL, rig.kneeL],
       [rig.legR, rig.kneeR],
     ] as const) {
-      leg.rotation.x = mix(leg.rotation.x, -1.48);
-      knee.rotation.x = mix(knee.rotation.x, 1.32);
+      leg.rotation.x = mix(leg.rotation.x, -1.4);
+      knee.rotation.x = mix(knee.rotation.x, kneeBend);
     }
 
-    // Đung đưa chân rất khẽ, lệch pha hai bên — trẻ con ngồi ghế cao thì thế.
-    const dangle = Math.sin(elapsed * 1.6) * 0.09 * weight;
+    // Đung đưa chân, lệch pha hai bên — trẻ con ngồi ghế cao thì thế.
+    const dangle = Math.sin(elapsed * 1.6) * 0.16 * weight;
 
     rig.kneeL.rotation.x += dangle;
     rig.kneeR.rotation.x -= dangle;

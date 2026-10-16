@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   createKiteState,
   endKite,
+  GUST_PERIOD,
+  gustEnvelope,
   gustNoise,
   snapRate,
   stepKite,
@@ -408,5 +410,32 @@ describe("trôi tự do", () => {
     expect(ended.over).toBe(true);
     expect(ended.outcome).toBe("snapped");
     expect(endKite(ended, "stowed")).toBe(ended);
+  });
+});
+
+describe("nhịp gió giật — đọc trời", () => {
+  it("giật ngắn, lặng dài, lặp đều theo chu kỳ — tất định", () => {
+    const samples = Array.from({ length: 260 }, (_, index) => gustEnvelope(index * 0.1));
+    const gusting = samples.filter((value) => value >= 0.99).length;
+    const calm = samples.filter((value) => value === 0).length;
+
+    expect(gusting).toBeGreaterThan(0);
+    expect(calm).toBeGreaterThan(gusting * 2);
+    expect(gustEnvelope(2)).toBe(gustEnvelope(2 + GUST_PERIOD));
+  });
+
+  it("gió lúc giật mạnh hơn lúc lặng", () => {
+    expect(windStrength(2)).toBeGreaterThan(windStrength(9));
+  });
+
+  it("thả dây ĐÚNG lúc gió giật thì diều lên cao hơn thả lúc gió lặng", () => {
+    // Cùng một con diều, cùng thả dây 3 giây — chỉ khác thời điểm.
+    const start = (t: number): KiteState => ({ ...createKiteState(), t, altitude: 12, lineLength: 20 });
+
+    const inGust = simulate(start(GUST_PERIOD * 2 + 0.6), RELEASE, 3);
+    const inCalm = simulate(start(GUST_PERIOD * 2 + 6.5), RELEASE, 3);
+
+    expect(inGust.over).toBe(false);
+    expect(inGust.altitude).toBeGreaterThan(inCalm.altitude + 1);
   });
 });

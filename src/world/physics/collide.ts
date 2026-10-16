@@ -12,6 +12,41 @@ export interface Obstacle {
   z: number;
   /** Bán kính vật thể (mét) */
   radius: number;
+  /**
+   * Có thì vật cản là một ĐOẠN (x,z)→(toX,toZ) dày `radius` — hình viên thuốc.
+   * Tường làm bằng chuỗi hình tròn thì trượt dọc theo nó bị gợn như chuỗi hạt
+   * (nhân vật lắc ra lắc vào ~10 lần/giây khi chạy); một đoạn thẳng thì phẳng.
+   */
+  toX?: number;
+  toZ?: number;
+}
+
+/** Vector từ điểm gần nhất của vật cản tới (px, pz), và độ dài của nó. */
+export function obstacleOffset(
+  obstacle: Obstacle,
+  px: number,
+  pz: number,
+): { dx: number; dz: number; distance: number } {
+  let cx = obstacle.x;
+  let cz = obstacle.z;
+
+  if (obstacle.toX !== undefined && obstacle.toZ !== undefined) {
+    const sx = obstacle.toX - obstacle.x;
+    const sz = obstacle.toZ - obstacle.z;
+    const lengthSq = sx * sx + sz * sz;
+    const t =
+      lengthSq > 1e-9
+        ? Math.min(1, Math.max(0, ((px - cx) * sx + (pz - cz) * sz) / lengthSq))
+        : 0;
+
+    cx += sx * t;
+    cz += sz * t;
+  }
+
+  const dx = px - cx;
+  const dz = pz - cz;
+
+  return { dx, dz, distance: Math.hypot(dx, dz) };
 }
 
 export interface Bounds {
@@ -72,13 +107,25 @@ export function rotateObstacles(
   const cos = Math.cos(place.rotation);
   const sin = Math.sin(place.rotation);
 
-  return obstacles.map((obstacle) => ({
-    radius: obstacle.radius,
-    // Xoay quanh trục Y rồi dịch — cùng thứ tự với `Object3D.rotation` +
-    // `Object3D.position` của three.js.
-    x: place.x + obstacle.x * cos + obstacle.z * sin,
-    z: place.z - obstacle.x * sin + obstacle.z * cos,
-  }));
+  // Xoay quanh trục Y rồi dịch — cùng thứ tự với `Object3D.rotation` +
+  // `Object3D.position` của three.js.
+  const moveX = (x: number, z: number) => place.x + x * cos + z * sin;
+  const moveZ = (x: number, z: number) => place.z - x * sin + z * cos;
+
+  return obstacles.map((obstacle) => {
+    const moved: Obstacle = {
+      radius: obstacle.radius,
+      x: moveX(obstacle.x, obstacle.z),
+      z: moveZ(obstacle.x, obstacle.z),
+    };
+
+    if (obstacle.toX !== undefined && obstacle.toZ !== undefined) {
+      moved.toX = moveX(obstacle.toX, obstacle.toZ);
+      moved.toZ = moveZ(obstacle.toX, obstacle.toZ);
+    }
+
+    return moved;
+  });
 }
 
 /**
@@ -102,21 +149,17 @@ export function resolveCollisions(
     let touched = false;
 
     for (const obstacle of obstacles) {
-      const dx = currentX - obstacle.x;
-      const dz = currentZ - obstacle.z;
+      const { dx, dz, distance } = obstacleOffset(obstacle, currentX, currentZ);
       const minimum = obstacle.radius + radius;
-      const distanceSq = dx * dx + dz * dz;
 
-      if (distanceSq >= minimum * minimum) continue;
+      if (distance >= minimum) continue;
 
-      const distance = Math.sqrt(distanceSq);
       touched = true;
       contacts += 1;
 
       // Chồng khít tâm (hiếm, nhưng nếu không xử lý thì chia cho 0)
       if (distance < 1e-5) {
-        currentX = obstacle.x + minimum;
-        currentZ = obstacle.z;
+        currentX += minimum;
 
         continue;
       }
@@ -129,7 +172,6 @@ export function resolveCollisions(
 
     if (!touched) break;
   }
-
 
   const clamped = clampToBounds(currentX, currentZ, radius, bounds);
 

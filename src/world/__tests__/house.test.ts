@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
-import { HOUSE_ROTATION, worldGroundHeight } from "../locations/childhoodYard";
+import { Character } from "../character/Character";
+import { HOUSE_ROTATION, WINDOW_VIEW, footstepAt, worldGroundHeight } from "../locations/childhoodYard";
 import { rotateObstacles, resolveCollisions } from "../physics/collide";
 import {
   HOUSE,
@@ -63,6 +64,7 @@ function toLocal(worldX: number, worldZ: number) {
  * Trả về chỗ dừng thật — chính là thứ người chơi cảm nhận được.
  */
 function walk(from: { x: number; z: number }, to: { x: number; z: number }, steps = 600) {
+  // Nhích theo từng bước chân thật: `steps` là số khung hình đi hết quãng.
   let x = from.x;
   let z = from.z;
 
@@ -84,6 +86,57 @@ describe("nhà — vào được và không xuyên được", () => {
     const gap = HOUSE.doorTo - HOUSE.doorFrom;
 
     expect(gap).toBeGreaterThan(CHAR_RADIUS * 2 + 0.3);
+  });
+
+  it("lệch khỏi tim cửa nửa bước chân vẫn ra được sân", () => {
+    const doorCenter = (HOUSE.doorFrom + HOUSE.doorTo) / 2;
+
+    // Người chơi KHÔNG đi đúng tim cửa bao giờ: đầu tường tròn phải đẩy trượt
+    // họ vào lối, chứ không chặn đứng.
+    for (const offset of [-0.4, -0.25, -0.1, 0.1, 0.25, 0.4]) {
+      const stop = walk(
+        toWorld(doorCenter + offset, 0),
+        toWorld(doorCenter + offset, HOUSE.depth / 2 + 4),
+      );
+
+      expect(toLocal(stop.x, stop.z).z).toBeGreaterThan(HOUSE.depth / 2 + 2);
+    }
+  });
+
+  it("CHẠY (Shift) qua cửa bằng nhân vật thật — không khựng ở khung cửa", () => {
+    const doorCenter = (HOUSE.doorFrom + HOUSE.doorTo) / 2;
+    const run = { forward: 1, right: 0, run: true };
+
+    for (const offset of [-0.35, -0.15, 0, 0.15, 0.35]) {
+      const start = toWorld(doorCenter + offset, HOUSE.depth / 2 + 2.5);
+      const character = new Character({ variant: "player", x: start.x, z: start.z, obstacles });
+
+      // yaw = độ xoay nhà ⇒ "tới trước" là −Z cục bộ: thẳng vào trong nhà.
+      for (let frame = 0; frame < 90; frame += 1) {
+        character.update(run, HOUSE_ROTATION, 1 / 60, frame / 60);
+      }
+
+      const local = toLocal(character.position.x, character.position.z);
+
+      // 1,5 s chạy ~4,5 m/s: phải qua mặt tiền và vào sâu trong nhà.
+      expect(local.z).toBeLessThan(HOUSE.depth / 2 - 1.5);
+    }
+  });
+
+  it("tường mặt tiền KHÔNG hở: đi thẳng vào chỗ đặc thì không ra được sân", () => {
+    const doorCenter = (HOUSE.doorFrom + HOUSE.doorTo) / 2;
+
+    // Xa khung cửa thì mặt tiền phải CHẶN hẳn. Mọi mốc ở đây đều là chỗ ĐỨNG
+    // ĐƯỢC trong nhà (cách tường hông ít nhất nửa mét) — đứng sẵn trong lòng
+    // tường rồi hỏi vì sao ra được sân là câu hỏi sai.
+    for (const offset of [1.6, 2.0, 2.4, -1.2, -1.6]) {
+      const stop = walk(
+        toWorld(doorCenter + offset, 0),
+        toWorld(doorCenter + offset, HOUSE.depth / 2 + 4),
+      );
+
+      expect(toLocal(stop.x, stop.z).z).toBeLessThan(HOUSE.depth / 2);
+    }
   });
 
   it("giữa nhà là chỗ ĐỨNG ĐƯỢC — không có vật cản nào đẩy người chơi ra", () => {
@@ -247,14 +300,9 @@ describe("nhà — ngồi bên cửa sổ", () => {
   it("khung ngắm cảnh nhìn XUYÊN ô cửa sổ hông, không đâm vào tường", () => {
     const seat = {
       ...toWorld(WINDOW_SEAT.x, WINDOW_SEAT.z),
-      yaw: Math.PI / 2 + HOUSE_ROTATION,
+      yaw: Math.PI / 2 + HOUSE_ROTATION - 0.3,
       height: WINDOW_SEAT.height,
-      back: 1.15,
-      side: 0.4,
-      eye: 0.85,
-      ahead: 9,
-      lookUp: 1.05,
-      fov: 52,
+      ...WINDOW_VIEW,
     };
 
     const shot = seatShot(seat);
@@ -274,5 +322,15 @@ describe("nhà — ngồi bên cửa sổ", () => {
 
     expect(Math.abs(z - SIDE_WINDOW.z)).toBeLessThan(SIDE_WINDOW.width / 2);
     expect(Math.abs(y - SIDE_WINDOW.y)).toBeLessThan(SIDE_WINDOW.height / 2);
+  });
+});
+
+describe("nhà — tiếng bước chân theo mặt nền", () => {
+  it("giữa nhà là sàn gỗ, ngoài sân là cỏ", () => {
+    const inside = toWorld(0, 0);
+    const yard = toWorld(0, HOUSE.depth / 2 + 4);
+
+    expect(footstepAt(inside.x, inside.z)).toBe("footsteps");
+    expect(footstepAt(yard.x, yard.z)).toBe("childFootsteps");
   });
 });

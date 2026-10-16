@@ -89,6 +89,18 @@ export function Joystick() {
       >
         E
       </button>
+
+      <button
+        type="button"
+        className="touch-action touch-action--run"
+        aria-label="Giữ để chạy, dưới nước là lặn"
+        onPointerDown={() => worldGame.setTouchRun(true)}
+        onPointerUp={() => worldGame.setTouchRun(false)}
+        onPointerCancel={() => worldGame.setTouchRun(false)}
+        onPointerLeave={() => worldGame.setTouchRun(false)}
+      >
+        ⇧
+      </button>
     </div>
   );
 }

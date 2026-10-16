@@ -111,6 +111,8 @@ export interface KiteModel {
   readonly group: THREE.Group;
   /** Các đốt đuôi, từ gốc tới ngọn — cho hiệu ứng vung theo gió. */
   readonly tail: readonly THREE.Group[];
+  /** Đổi màu giấy đuôi diều (trang phục); `undefined` là màu giấy mặc định. */
+  setTailColor(color: number | undefined): void;
   dispose(): void;
 }
 
@@ -271,6 +273,9 @@ export function createKiteModel(): KiteModel {
   return {
     group,
     tail,
+    setTailColor(color) {
+      tailPaper.color.setHex(color ?? TAIL_PAPER);
+    },
     dispose() {
       for (const geometry of geometries) geometry.dispose();
       for (const material of materials) material.dispose();
@@ -282,6 +287,11 @@ export function createKiteModel(): KiteModel {
 
 export class KiteField {
   readonly group = new THREE.Group();
+
+  /** Đổi màu đuôi con diều đang bay — xem `KiteModel.setTailColor`. */
+  setTailColor(color: number | undefined) {
+    this.model.setTailColor(color);
+  }
 
   private readonly model = createKiteModel();
 
@@ -368,9 +378,10 @@ export class KiteField {
    *
    * `tension` (0…1) quyết định độ võng: dây căng thì gần như thẳng — đó là
    * phản hồi thị giác cho thanh lực căng trên HUD, và nó đọc nhanh hơn số.
-   * `tension` âm (dây đã đứt) thì dây biến mất hẳn.
+   * `tension` âm (dây đã đứt) thì dây biến mất hẳn. Gần ngưỡng đứt (> 0,7)
+   * dây rung như dây đàn — biên độ lớn nhất ở giữa dây, hai đầu đứng yên.
    */
-  stretchString(from: THREE.Vector3, to: THREE.Vector3, tension: number): void {
+  stretchString(from: THREE.Vector3, to: THREE.Vector3, tension: number, elapsed = 0): void {
     if (tension < 0) {
       this.stringLine.visible = false;
 
@@ -394,6 +405,9 @@ export class KiteField {
       (this.scratchFrom.z + this.scratchTo.z) / 2,
     );
 
+    const thrum =
+      Math.min(1, Math.max(0, (tension - 0.7) / 0.3)) * 0.0035 * distance * Math.sin(elapsed * 38);
+
     for (let index = 0; index < STRING_POINTS; index += 1) {
       const t = index / (STRING_POINTS - 1);
       const inverse = 1 - t;
@@ -412,7 +426,7 @@ export class KiteField {
         t * t * this.scratchTo.z;
 
       this.stringPositions[index * 3] = x;
-      this.stringPositions[index * 3 + 1] = y;
+      this.stringPositions[index * 3 + 1] = y + Math.sin(Math.PI * t) * thrum;
       this.stringPositions[index * 3 + 2] = z;
     }
 

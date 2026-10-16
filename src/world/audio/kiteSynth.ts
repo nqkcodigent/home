@@ -14,6 +14,8 @@ export interface KiteSoundInput {
   wind: number;
   /** 0…1+ */
   tension: number;
+  /** Cơn giật 0…1 (`gustEnvelope`) — gió rít to hơn, sáo vút lên */
+  gust?: number;
 }
 
 export interface KiteSoundParams {
@@ -24,15 +26,19 @@ export interface KiteSoundParams {
 }
 
 /** Ánh xạ trạng thái diều sang tham số âm thanh — thuần, test được. */
-export function kiteSoundParams({ altitude, wind, tension }: KiteSoundInput): KiteSoundParams {
+export function kiteSoundParams({ altitude, wind, tension, gust = 0 }: KiteSoundInput): KiteSoundParams {
   const height = clamp(altitude / 60, 0, 1);
+  const rush = clamp(gust, 0, 1);
+  // Gần đứt (căng > 0,7) thì tiếng sáo vút cao hẳn — tai nghe thấy trước mắt.
+  const strain = clamp((tension - 0.7) / 0.3, 0, 1);
 
   return {
-    windGain: 0.04 + clamp(wind, 0, 1) * 0.12 + height * 0.06,
-    windFreq: 400 + clamp(wind, 0, 1) * 500 + height * 600,
+    windGain: 0.04 + clamp(wind, 0, 1) * 0.12 + height * 0.06 + rush * 0.06,
+    windFreq: 400 + clamp(wind, 0, 1) * 500 + height * 600 + rush * 300,
     // Sáo chỉ kêu khi diều đã lên khỏi ngọn tre — dưới thấp gió chưa lùa vào.
-    fluteGain: clamp((height - 0.05) * 4, 0, 1) * (0.015 + clamp(wind, 0, 1) * 0.04),
-    fluteFreq: 300 + height * 240 + clamp(tension, 0, 1) * 40,
+    fluteGain:
+      clamp((height - 0.05) * 4, 0, 1) * (0.015 + clamp(wind, 0, 1) * 0.04 + rush * 0.02),
+    fluteFreq: 300 + height * 240 + clamp(tension, 0, 1) * 40 + strain * 120,
   };
 }
 

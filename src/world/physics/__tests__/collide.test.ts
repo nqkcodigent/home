@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCollisions } from "../collide";
+import { resolveCollisions, rotateObstacles } from "../collide";
 
 const TREE = { x: 5, z: 0, radius: 1 };
 
@@ -65,5 +65,34 @@ describe("resolveCollisions", () => {
     expect(result.x).toBe(-30);
     expect(result.z).toBe(12);
     expect(result.contacts).toBe(0);
+  });
+});
+
+describe("vật cản dạng đoạn (tường)", () => {
+  const WALL = { x: -5, z: 0, toX: 5, toZ: 0, radius: 0.2 };
+
+  it("đẩy ra theo pháp tuyến của đoạn, ở bất kỳ chỗ nào dọc tường", () => {
+    for (const x of [-4.9, -1.3, 0, 2.21, 4.9]) {
+      const result = resolveCollisions(x, 0.3, 0.3, [WALL]);
+
+      expect(result.x).toBeCloseTo(x, 6);
+      expect(result.z).toBeCloseTo(0.5, 6);
+    }
+  });
+
+  it("hai đầu đoạn tròn như viên thuốc", () => {
+    const result = resolveCollisions(5.3, 0, 0.3, [WALL]);
+
+    expect(result.x).toBeCloseTo(5.5, 6);
+    expect(result.z).toBeCloseTo(0, 6);
+  });
+
+  it("xoay cả hai đầu đoạn theo phép đặt vật", () => {
+    const [moved] = rotateObstacles([WALL], { x: 1, z: 2, rotation: Math.PI / 2 });
+
+    expect(moved.x).toBeCloseTo(1, 6);
+    expect(moved.z).toBeCloseTo(7, 6);
+    expect(moved.toX).toBeCloseTo(1, 6);
+    expect(moved.toZ).toBeCloseTo(-3, 6);
   });
 });

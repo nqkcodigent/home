@@ -597,6 +597,15 @@
   box-shadow: var(--fab-gloss), var(--fab-lip), 0 1px 0 rgba(52, 128, 92, 0.3);
 }
 
+/* Nút giữ-để-chạy (dưới nước là lặn): nhỏ hơn, nằm trên nút E. */
+.touch-action--run {
+  bottom: calc(max(48px, env(safe-area-inset-bottom, 0px)) + 92px);
+  width: 58px;
+  height: 58px;
+  right: calc(max(24px, env(safe-area-inset-right, 0px)) + 9px);
+  font-size: 1.3rem;
+}
+
 /* Ba bước của buổi chiều, in trên màn hình mở đầu. */
 .cover__steps {
   display: flex;

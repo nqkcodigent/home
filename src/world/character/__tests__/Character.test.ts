@@ -89,6 +89,29 @@ describe("Character", () => {
     // Bị đẩy ra khỏi thân vật cản (bán kính 1 + bán kính nhân vật 0.36).
     expect(character.position.z).toBeGreaterThan(-0.65);
     expect(character.position.z).toBeLessThan(0);
+    // Đứng lại, hai tay đưa ra trước chống vào vật cản.
+    expect(character.speed).toBeLessThan(0.05);
+    expect(character.rig.armL.rotation.x).toBeLessThan(-1);
+  });
+  it("đi xiên vào tường thì trượt dọc tường êm, giữ phần tốc độ song song", () => {
+    const character = new Character({
+      variant: "player",
+      x: 0,
+      z: 0,
+      obstacles: [{ x: -20, z: -2, toX: 20, toZ: -2, radius: 0.22 }],
+    });
+
+    tick(character, 2, { forward: 1, right: 1, run: false });
+
+    const z = character.position.z;
+    const x = character.position.x;
+
+    tick(character, 1, { forward: 1, right: 1, run: false });
+
+    // Áp sát tường, không lắc ra vào, và vẫn trượt ~walkSpeed·cos45° ≈ 1,55 m/s.
+    expect(character.position.z).toBeCloseTo(z, 4);
+    expect(character.position.x - x).toBeGreaterThan(1.3);
+    expect(character.speed).toBeGreaterThan(1.3);
   });
 });
 
@@ -259,18 +282,20 @@ describe("Character — lớp hình thể", () => {
     expect(Math.abs(character.rig.legL.rotation.x)).toBeLessThan(0.02);
   });
 
-  it("đuôi khăn rủ xuống khi đứng, bay ra sau khi chạy", () => {
+  it("lọn tóc bên tai rủ xuống khi đứng, bay ra sau khi chạy", () => {
     const standing = new Character({ variant: "player", x: 0, z: 0 });
     const running = new Character({ variant: "player", x: 0, z: 0 });
 
     tick(standing, 2);
     tick(running, 2, { forward: 1, right: 0, run: true });
 
-    const rest = standing.rig.scarfTail?.rotation.x ?? 0;
-    const flying = running.rig.scarfTail?.rotation.x ?? 0;
+    // Lọn cạnh tai (sway 0.8) — đủ bay để thấy rõ.
+    const ear = standing.rig.trailing.findIndex((piece) => piece.userData.sway === 0.8);
+    const rest = standing.rig.trailing[ear].rotation.x;
+    const flying = running.rig.trailing[ear].rotation.x;
 
     expect(Math.abs(rest)).toBeLessThan(0.25);
-    expect(flying).toBeGreaterThan(rest + 0.4);
+    expect(flying).toBeGreaterThan(rest + 0.3);
   });
 });
 
@@ -305,7 +330,19 @@ describe("Character — ngồi", () => {
     expect(hip).toBeGreaterThan(seat.height);
     expect(hip).toBeLessThan(seat.height + 0.15);
     expect(character.rig.legL.rotation.x).toBeLessThan(-1.2);
-    expect(character.rig.kneeL.rotation.x).toBeGreaterThan(1);
+    // Chân bé ngắn hơn mặt ghế: cẳng chân chìa ra trước-xuống, không đâm vào lòng ghế.
+    expect(character.rig.kneeL.rotation.x).toBeGreaterThan(0.3);
+    expect(character.rig.kneeL.rotation.x).toBeLessThan(1);
+  });
+
+  it("chân dài hơn mặt ghế (người cao) thì cẳng chân buông thẳng xuống", () => {
+    const character = new Character({ variant: "player", x: 0, z: 0, look: { height: 2.2 } });
+
+    void character.sit({ x: 0, z: 0, yaw: 0, height: 0.45 });
+    tick(character, 3);
+
+    expect(character.rig.kneeL.rotation.x).toBeGreaterThan(1.1);
+    expect(character.rig.kneeL.rotation.x).toBeLessThan(1.6);
   });
 
   it("đứng dậy mượt rồi mới đi lại được", async () => {
@@ -320,10 +357,11 @@ describe("Character — ngồi", () => {
       standing = true;
     });
 
-    // Ngay frame đầu chưa bật dậy: hông vẫn còn ở trên cao.
+    // Ngay frame đầu chưa bật dậy: hông vẫn ở tầm mặt ghế (chân dài thì gốc
+    // hình đang hạ xuống), chưa nhảy về dáng đứng.
     character.update(IDLE, 0, 1 / 60, 3);
 
-    expect(character.rig.root.position.y).toBeGreaterThan(0.1);
+    expect(Math.abs(character.rig.root.position.y)).toBeGreaterThan(0.05);
 
     tick(character, 2);
     await Promise.resolve();
@@ -334,5 +372,42 @@ describe("Character — ngồi", () => {
     tick(character, 1, { forward: 1, right: 0, run: false });
 
     expect(character.position.z).toBeLessThan(-0.5);
+  });
+});
+
+describe("Character — thay trang phục", () => {
+  it("dress() dựng lại hình mà giữ nguyên chỗ đứng, hướng và vẫn đi tiếp được", () => {
+    const character = new Character({ variant: "player", x: 1, z: 2, yaw: 0.5 });
+    const before = character.rig;
+
+    character.dress({ accessory: "nonLa", shirt: 0xbcd8ec });
+
+    expect(character.rig).not.toBe(before);
+    expect(character.root.children).toContain(character.rig.root);
+    expect(character.root.children).not.toContain(before.root);
+    expect(character.position.x).toBe(1);
+    expect(character.root.rotation.y).toBeCloseTo(0.5, 6);
+
+    tick(character, 1, { forward: 1, right: 0, run: false });
+
+    expect(character.speed).toBeGreaterThan(0.5);
+  });
+});
+
+describe("Character — ánh nhìn", () => {
+  it("ngoái đầu về điểm bên phải và ngẩng lên khi điểm ở trên cao; thôi nhìn thì đầu về chỗ cũ", () => {
+    const character = new Character({ variant: "player", x: 0, z: 0, yaw: 0 });
+    const kite = { x: 10, y: 30, z: 10 };
+
+    character.setGaze(kite);
+    tick(character, 2);
+
+    expect(character.rig.head.rotation.y).toBeGreaterThan(0.5);
+    expect(character.rig.head.rotation.x).toBeLessThan(-0.3);
+
+    character.setGaze(undefined);
+    tick(character, 3);
+
+    expect(Math.abs(character.rig.head.rotation.y)).toBeLessThan(0.3);
   });
 });

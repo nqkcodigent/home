@@ -5,20 +5,25 @@ import { kiteShot, nextShotMode, resolveShotMode } from "./kiteCamera";
 import {
   createKiteState,
   endKite,
+  gustEnvelope,
   stepKite,
   thermalsAt,
   windDirection,
   windStrength,
   DEFAULT_KITE,
+  KITE_SPAN,
 } from "./model";
 import { gameEvents } from "../../../events";
 import { KiteSynth } from "../../audio/kiteSynth";
+import { WindStreaks } from "./WindStreaks";
 import { GRASS_CALM_WIND, GRASS_SWAY } from "../../world/Terrain";
 
 import type { SkyFrame } from "./Kite";
+import type { SkyFocus } from "../../world/Creatures";
 import type { KiteShot, KiteShotMode } from "./kiteCamera";
 import type { CameraShot } from "../../CameraRig";
-import type { KiteInput, KiteOutcome, KiteState, KiteTuning } from "./model";
+import type { KiteInput, KiteOutcome, KiteState, KiteTuning, Thermal } from "./model";
+import type { SessionReport } from "../index";
 import type { Character } from "../../character/Character";
 import type { Engine } from "../../Engine";
 import type { KiteResultPayload } from "../../../events";
@@ -58,8 +63,18 @@ export interface KiteActivityOptions {
    * trả camera về góc nhìn thứ ba.
    */
   camera: (shot: CameraShot | undefined) => void;
+  /** Màu đuôi diều (trang phục); bỏ trống là màu giấy mặc định */
+  tailColor?: number;
   /** Hướng diều bay ra, trên mặt phẳng XZ */
   forward: { x: number; z: number };
+  /**
+   * Bộ số của ván — mặc định là `DEFAULT_KITE`.
+   *
+   * Sổ hồi ký đưa vào đây bộ số đã cộng kỹ năng (`kiteTuning`), nhưng lớp này
+   * KHÔNG biết gì về tiến trình: nó chỉ nhận một `KiteTuning` như mọi tham số
+   * khác. Đó là toàn bộ lý do tiến trình không chạm được vào mô phỏng.
+   */
+  tuning?: KiteTuning;
   /**
    * Độ dài GỢI Ý của ván (ms).
    *
@@ -81,13 +96,18 @@ const NO_INPUT: KiteInput = { reel: 0, steer: 0 };
 export class KiteActivity {
   private readonly options: KiteActivityOptions;
 
-  private readonly tuning: KiteTuning = DEFAULT_KITE;
+  private readonly tuning: KiteTuning;
 
   private readonly field = new KiteField();
 
   private readonly frame: SkyFrame;
 
   private readonly kitePosition = new THREE.Vector3();
+
+  /** Thứ đàn chim bám theo: con diều, cộng cột khí nóng gần nhất (nếu đang có). */
+  private readonly focus: SkyFocus = { x: 0, y: 0, z: 0 };
+
+  private readonly thermalMark = { x: 0, y: 0, z: 0, radius: 0 };
 
   private readonly previousKite = new THREE.Vector3();
 
@@ -117,6 +137,10 @@ export class KiteActivity {
 
   private state: KiteState;
 
+  private snapLateral: number | undefined;
+
+  private readonly streaks = new WindStreaks();
+
   private detach: (() => void) | undefined;
 
   private resolve: ((result: KiteResultPayload) => void) | undefined;
@@ -129,11 +153,15 @@ export class KiteActivity {
   constructor(options: KiteActivityOptions) {
     this.options = options;
 
+    this.tuning = options.tuning ?? DEFAULT_KITE;
+
     this.hintAfter = options.suggestedMs
       ? options.suggestedMs / 1000
       : DEFAULT_HINT_AFTER;
 
     this.state = createKiteState(this.tuning);
+
+    this.field.setTailColor(options.tailColor);
 
     const forward = new THREE.Vector3(
       options.forward.x,
@@ -153,13 +181,50 @@ export class KiteActivity {
     // số đầu tiên là cả chục mét một frame, và camera sẽ ngắm vào một điểm
     // cách con diều hàng trăm mét trong đúng khung hình mở màn.
     kiteWorldPosition(this.frame, this.state, this.previousKite);
+    // Cùng lý do, vị trí HIỆN TẠI cũng phải có ngay từ đầu: `skyFocus()` đọc
+    // nó trước cả frame đầu tiên (chim bám theo), và (0, 0, 0) là gốc sân —
+    // cả đàn chim sẽ lao về giữa sân trong đúng một frame.
+    kiteWorldPosition(this.frame, this.state, this.kitePosition);
+    this.syncFocus();
   }
+
+  private syncFocus() {
+    this.focus.x = this.kitePosition.x;
+    this.focus.y = this.kitePosition.y;
+    this.focus.z = this.kitePosition.z;
+  }
+
+  /**
+   * Con diều đang ở đâu trên trời — đàn chim trong sân bám theo điểm này
+   * (xem `RunningActivity.skyFocus`).
+   *
+   * Trả cùng một object mỗi lần (cập nhật tại chỗ mỗi frame) — không cấp
+   * phát gì cho một thứ chỉ đọc.
+   */
+  readonly skyFocus = (): SkyFocus => this.focus;
+
+  /**
+   * Tóm tắt ván vừa xong cho Sổ hồi ký — đọc SAU khi `play()` trả về.
+   *
+   * Kỷ lục của trò diều là ĐỘ CAO chứ không phải điểm: mọi ngưỡng của trò này
+   * (kỹ năng, trang hồi ký, mục trong ngày) đều nói bằng mét.
+   */
+  readonly summary = (): SessionReport => ({
+    name: "kite",
+    score: Math.round(this.state.best),
+    thermals: this.state.thermals,
+    drift: Math.round(this.state.drift),
+    snapSide: snapSide(this.snapLateral),
+  });
 
   /** Thêm diều vào scene và chạy cho tới khi người chơi cất diều. */
   play(): Promise<KiteResultPayload> {
     const { engine } = this.options;
 
-    engine.scene.add(this.field.group);
+    engine.scene.add(this.field.group, this.streaks.object);
+
+    // Mắt dõi theo con diều suốt ván — kể cả lúc nó đứt dây trôi đi.
+    this.options.character.setGaze(this.kitePosition);
 
     this.publish(true);
 
@@ -188,6 +253,8 @@ export class KiteActivity {
     this.detachView = undefined;
 
     this.field.dispose();
+    this.streaks.dispose();
+    this.options.character.setGaze(undefined);
 
     this.synth.stop();
 
@@ -218,6 +285,11 @@ export class KiteActivity {
     const input = this.state.phase === "adrift" ? NO_INPUT : this.options.readInput();
 
     this.state = stepKite(this.state, input, dt, this.tuning);
+
+    // Ghi phía con diều ĐÚNG lúc dây đứt — trôi xong thì gió đã kéo nó lệch đi.
+    if (this.state.phase === "adrift" && this.snapLateral === undefined) {
+      this.snapLateral = this.state.lateral;
+    }
 
     this.render(elapsed, dt);
 
@@ -262,9 +334,18 @@ export class KiteActivity {
       this.hand,
       this.kitePosition,
       adrift ? -1 : this.state.tension,
+      elapsed,
     );
 
+    const gust = gustEnvelope(this.state.t);
+
+    this.streaks.update(this.kitePosition, this.frame.right, adrift ? 0 : gust, elapsed);
+
     const lateral = this.state.lateral;
+    const live = thermalsAt(this.state.t);
+
+    this.syncFocus();
+    this.updateThermalFocus(live, lateral, adrift);
 
     const context = {
       frame: this.frame,
@@ -277,7 +358,7 @@ export class KiteActivity {
       t: this.state.t,
       adrift,
       driftTime: this.state.snapAt === undefined ? 0 : this.state.t - this.state.snapAt,
-      inThermal: thermalsAt(this.state.t).some(
+      inThermal: live.some(
         (cone) => Math.abs(lateral - cone.x) <= cone.radius,
       ),
     };
@@ -288,9 +369,38 @@ export class KiteActivity {
 
     this.options.camera(this.shot);
 
-    this.synth.update({ altitude: this.state.altitude, wind, tension: this.state.tension });
+    this.synth.update({ altitude: this.state.altitude, wind, tension: this.state.tension, gust });
 
     GRASS_SWAY.wind.value = GRASS_CALM_WIND + wind * 0.9;
+  }
+
+  /**
+   * Cột khí nóng gần con diều nhất → điểm cho đàn chim lượn quanh. Đặt ở cùng
+   * tầm xa và tầm cao với con diều, lệch ngang đúng chỗ cột trong vùng trời,
+   * nên từ camera bay theo diều nhìn ra là thấy ngay "chỗ chim lượn kia".
+   * Đứt dây thì thôi — diều không lái được nữa, chỉ đường cũng vô ích.
+   */
+  private updateThermalFocus(live: Thermal[], lateral: number, adrift: boolean) {
+    const nearest = adrift
+      ? undefined
+      : live
+          .filter((cone) => cone.remaining > 1)
+          .sort((a, b) => Math.abs(a.x - lateral) - Math.abs(b.x - lateral))[0];
+
+    if (!nearest) {
+      this.focus.thermal = undefined;
+
+      return;
+    }
+
+    const mark = this.thermalMark;
+
+    mark.x = this.kitePosition.x + this.frame.right.x * (nearest.x - lateral);
+    mark.z = this.kitePosition.z + this.frame.right.z * (nearest.x - lateral);
+    mark.y = this.kitePosition.y;
+    mark.radius = nearest.radius;
+
+    this.focus.thermal = mark;
   }
 
   /** Đẩy số liệu ra HUD theo dạng patch — 10 lần/giây là quá đủ để đọc. */
@@ -315,6 +425,7 @@ export class KiteActivity {
       tension: this.state.tension,
       wind: windStrength(this.state.t, this.tuning),
       windDirection: windDirection(this.state.t),
+      gust: gustEnvelope(this.state.t) > 0.5,
       line: this.state.lineLength,
       elapsed: this.state.t,
       drift: this.state.drift,
@@ -389,4 +500,13 @@ export function describeKiteResult(state: KiteState): KiteResultPayload {
     title: "Cất diều",
     detail: `Thu dây cuốn lại, lòng vẫn còn vương tiếng sáo. ${score} điểm, cao nhất ${bestAltitude} mét. Chiều nào cũng quay lại thả tiếp được.`,
   };
+}
+
+/** Phía con diều lúc đứt dây: một phần ba sải lạng mỗi bên, còn lại là giữa. */
+export function snapSide(lateral: number | undefined): SessionReport["snapSide"] {
+  if (lateral === undefined) return undefined;
+  if (lateral < -KITE_SPAN / 3) return "left";
+  if (lateral > KITE_SPAN / 3) return "right";
+
+  return "center";
 }

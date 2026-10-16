@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
+import { LOOK_LIST } from "../../progress/looks";
 import { AVATAR_LOOKS, createAvatar } from "../avatar";
 
 import type { AvatarVariant } from "../avatar";
@@ -26,7 +27,7 @@ describe("createAvatar", () => {
     for (const eye of rig.eyes) {
       // Ba lớp: tròng trắng, con ngươi, điểm sáng. Thiếu một lớp là mắt trở
       // lại thành chấm đen dán lên cầu da.
-      expect(eye.children).toHaveLength(3);
+      expect(eye.children.length).toBeGreaterThanOrEqual(3);
     }
 
     // Đầu: cầu + 2 tai + 2 mắt + 2 lông mày + miệng + mũi + 2 má + tóc…
@@ -77,16 +78,36 @@ describe("createAvatar", () => {
     }
   });
 
-  it("bốn kiểu tóc khác nhau được dùng hết — không có kiểu chết trong data", () => {
-    const styles = new Set(
-      VARIANTS.map((variant) => AVATAR_LOOKS[variant].hairStyle),
-    );
+  it("mọi kiểu tóc đều có người để hoặc bán trong tủ đồ — không có kiểu chết", () => {
+    const styles = new Set([
+      ...VARIANTS.map((variant) => AVATAR_LOOKS[variant].hairStyle),
+      ...LOOK_LIST.flatMap((item) => (item.patch?.hairStyle ? [item.patch.hairStyle] : [])),
+    ]);
 
-    expect(styles.size).toBe(4);
+    expect([...styles].sort()).toEqual(["bob", "bowl", "messy", "pony", "short"]);
   });
 
-  it("nhân vật chính mặc áo len có khăn quàng; nhân vật phụ thì không", () => {
-    expect(createAvatar("player").scarfTail).toBeInstanceOf(THREE.Group);
-    expect(createAvatar("friend").scarfTail).toBeUndefined();
+  it("nhân vật chính có lọn tóc, móc khoá lủng lẳng; nhân vật phụ thì không", () => {
+    const player = createAvatar("player");
+
+    // 7 lọn tóc + móc khoá + túi phụ.
+    expect(player.trailing.length).toBe(9);
+    expect(player.trailing.every((piece) => typeof piece.userData.sway === "number")).toBe(true);
+    expect(createAvatar("friend").trailing).toHaveLength(0);
+  });
+
+  it("khăn quàng vẫn là đồ lủng lẳng khi có", () => {
+    expect(createAvatar("friend", { scarf: 0xd9785b }).trailing).toHaveLength(1);
+  });
+
+  it("mắt có tròng màu thì thêm con ngươi sẫm ở giữa", () => {
+    expect(createAvatar("player").eyes[0].children).toHaveLength(4);
+    expect(createAvatar("friend").eyes[0].children).toHaveLength(3);
+  });
+
+  it("đội mũ lưỡi trai thì bỏ búi tóc đỉnh — không xuyên qua chóp mũ", () => {
+    expect(createAvatar("player", { accessory: "cap" }).head.children.length).toBeLessThan(
+      createAvatar("player").head.children.length,
+    );
   });
 });

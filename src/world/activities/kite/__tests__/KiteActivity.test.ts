@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
-import { KiteActivity } from "../KiteActivity";
+import { KiteActivity, snapSide } from "../KiteActivity";
 import { gameEvents } from "../../../../events";
 
 import type { CameraShot } from "../../../CameraRig";
@@ -43,6 +43,7 @@ function makeHarness(options: { suggestedMs?: number } = {}) {
 
   const character = {
     position: new THREE.Vector3(4, 0, 6),
+    setGaze: () => undefined,
   } as unknown as Character;
 
   const shots: (CameraShot | undefined)[] = [];
@@ -114,7 +115,8 @@ describe("KiteActivity — vòng đời", () => {
 
     const done = harness.activity.play();
 
-    expect(harness.engine.scene.children.length).toBe(1);
+    // Trường diều + vệt gió (chỉ hiện lúc giật).
+    expect(harness.engine.scene.children.length).toBe(2);
 
     harness.run(10);
 
@@ -260,6 +262,59 @@ describe("KiteActivity — vòng đời", () => {
     harness.stop();
   });
 
+  it("con diều biết mình ở đâu NGAY trước khung hình đầu — chim bám theo nó, không lao về gốc sân", async () => {
+    const harness = makeHarness();
+
+    // Đọc TRƯỚC khi ván chạy: `WorldGame` lấy điểm này ở listener đầu tiên của
+    // mỗi frame, và (0, 0, 0) chính là giữa sân — cả đàn chim sẽ bổ nhào xuống
+    // đó trong đúng một frame nếu `skyFocus()` chưa có gì để trả.
+    const before = { ...harness.activity.skyFocus() };
+
+    expect(Number.isFinite(before.x)).toBe(true);
+    expect(Math.hypot(before.x, before.y, before.z)).toBeGreaterThan(1);
+    expect(before.y).toBeGreaterThan(1);
+
+    void harness.activity.play();
+
+    harness.run(120);
+
+    const after = harness.activity.skyFocus();
+
+    // Bay hai giây thì con diều phải đã ở chỗ khác — nếu không thì đàn chim
+    // đang bám theo một điểm đứng im.
+    expect(Math.hypot(after.x - before.x, after.y - before.y, after.z - before.z)).toBeGreaterThan(0.5);
+
+    harness.activity.dispose();
+    harness.stop();
+  });
+
+  it("đàn chim được chỉ tới cột khí nóng gần nhất, ngang tầm con diều", async () => {
+    const harness = makeHarness();
+
+    void harness.activity.play();
+
+    let seen = false;
+
+    // Vài chục giây là đủ để ít nhất một cột khí nóng sinh ra.
+    for (let second = 0; second < 40 && !seen; second += 1) {
+      harness.run(60);
+
+      const focus = harness.activity.skyFocus();
+
+      if (focus.thermal) {
+        seen = true;
+
+        expect(Math.abs(focus.thermal.y - focus.y)).toBeLessThan(0.01);
+        expect(focus.thermal.radius).toBeGreaterThan(0);
+      }
+    }
+
+    expect(seen).toBe(true);
+
+    harness.activity.dispose();
+    harness.stop();
+  });
+
   it("qua độ dài gợi ý thì HUD nhắc cất diều — nhưng ván vẫn không bị cắt ngang", async () => {
     const harness = makeHarness({ suggestedMs: 1000 });
 
@@ -277,5 +332,38 @@ describe("KiteActivity — vòng đời", () => {
 
     harness.activity.dispose();
     harness.stop();
+  });
+});
+
+describe("snapSide — phía tiễn diều", () => {
+  it("chia sải lạng làm ba; chưa đứt dây thì không có phía nào", () => {
+    expect(snapSide(undefined)).toBeUndefined();
+    expect(snapSide(-7)).toBe("left");
+    expect(snapSide(0.5)).toBe("center");
+    expect(snapSide(7)).toBe("right");
+  });
+});
+
+describe("WindStreaks — vệt gió", () => {
+  it("lặng gió thì tắt hẳn; giật thì hiện, toạ độ hữu hạn quanh con diều", async () => {
+    const { WindStreaks } = await import("../WindStreaks");
+    const streaks = new WindStreaks();
+    const kite = new THREE.Vector3(5, 30, -8);
+    const along = new THREE.Vector3(1, 0, 0);
+
+    streaks.update(kite, along, 0, 1);
+    expect(streaks.object.visible).toBe(false);
+
+    streaks.update(kite, along, 1, 1);
+    expect(streaks.object.visible).toBe(true);
+
+    const positions = streaks.object.geometry.getAttribute("position").array;
+
+    for (let index = 0; index < positions.length; index += 3) {
+      expect(Math.abs(positions[index + 1] - kite.y)).toBeLessThan(4);
+      expect(Number.isFinite(positions[index])).toBe(true);
+    }
+
+    streaks.dispose();
   });
 });

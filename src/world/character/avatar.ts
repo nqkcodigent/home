@@ -25,9 +25,9 @@ import * as THREE from "three";
 
 export type AvatarVariant = "player" | "friend" | "cousin" | "adult";
 
-export type HairStyle = "bowl" | "bob" | "short" | "pony";
+export type HairStyle = "bowl" | "bob" | "short" | "pony" | "messy";
 
-export type Accessory = "none" | "cap" | "headband" | "nonLa";
+export type Accessory = "none" | "cap" | "headband" | "nonLa" | "goggles";
 
 export interface AvatarLook {
   /** Chiều cao tổng thể (mét). Trẻ con ~1.35, người lớn ~1.6. */
@@ -45,23 +45,37 @@ export interface AvatarLook {
   sweater?: boolean;
   /** Màu khăn quàng cổ — có thì đuôi khăn bay theo gió khi chạy */
   scarf?: number;
+  /** Màu tròng mắt — có thì mắt to hơn, có tròng màu + con ngươi sẫm */
+  eyes?: number;
+  /**
+   * Bộ đồ dã ngoại: `shirt` thành áo khoác gió mở vạt (lộ áo thun sọc), mũ
+   * trùm sau gáy; `accent` là màu viền cát; quần đùi túi hộp; tất cao + giày
+   * leo núi màu `shoes`; balo có diều gấp, cánh lượn cuộn và móc khoá.
+   */
+  adventurer?: boolean;
+  /**
+   * Dáng bé nhanh nhẹn: vẫn đầu to mắt to kiểu chibi, nhưng người thon hơn,
+   * chân và tay dài hơn chibi một chút — đủ cho bộ đồ dã ngoại có chỗ hiện ra.
+   */
+  kid?: boolean;
 }
 
 export const AVATAR_LOOKS: Record<AvatarVariant, AvatarLook> = {
   player: {
-    height: 1.35,
+    height: 1.3,
     skin: 0xf6c9a4,
-    hair: 0x3a2a20,
-    // Bảng màu "cozy": áo len màu yến mạch, quần xanh lá xô thơm, khăn đỏ đất
-    // nung — ấm mà dịu, vẫn nổi trên nền cỏ chiều mà không chói.
-    shirt: 0xf0dcb4,
-    shorts: 0x7f9c86,
-    shoes: 0xf4efe6,
-    accent: 0xc8664a,
-    hairStyle: "bowl",
-    accessory: "none",
-    sweater: true,
-    scarf: 0xd9785b,
+    // Tóc nâu hạt dẻ, mắt nâu ấm. Áo khoác xanh rừng viền vàng mù tạt, quần
+    // đùi xám than, giày da nâu — tông đất, nổi trên nền cỏ mà không chói.
+    hair: 0x6e3f22,
+    shirt: 0x4a6640,
+    shorts: 0x3a3c40,
+    shoes: 0x7a5234,
+    accent: 0xe0c25c,
+    hairStyle: "messy",
+    accessory: "goggles",
+    eyes: 0x8a5530,
+    adventurer: true,
+    kid: true,
   },
 
   friend: {
@@ -118,8 +132,11 @@ export interface AvatarRig {
   kneeR: THREE.Group;
   /** Hai mắt; lớp animation scale.y để chớp. */
   eyes: THREE.Group[];
-  /** Đuôi khăn quàng — xoay quanh gáy, bay ra sau khi chạy (nếu có khăn). */
-  scarfTail?: THREE.Group;
+  /**
+   * Những thứ treo lủng lẳng — đuôi khăn, lọn tóc, móc khoá, túi phụ. Mỗi
+   * group xoay quanh chỗ treo; `userData.sway` (0…1) là độ bay theo đà.
+   */
+  trailing: THREE.Group[];
   /** Vật liệu để mờ dần khi "thức dậy" — dùng cho nhịp `reveal`. */
   materials: THREE.MeshStandardMaterial[];
 }
@@ -158,8 +175,12 @@ function mesh(
   return created;
 }
 
-export function createAvatar(variant: AvatarVariant): AvatarRig {
-  const look = AVATAR_LOOKS[variant];
+/**
+ * @param patch  Trang phục đè lên dáng mặc định của biến thể (kiểu tóc, nón,
+ *   màu áo). Không truyền thì bốn biến thể giữ nguyên hình như cũ.
+ */
+export function createAvatar(variant: AvatarVariant, patch: Partial<AvatarLook> = {}): AvatarRig {
+  const look: AvatarLook = { ...AVATAR_LOOKS[variant], ...patch };
   const materials: THREE.MeshStandardMaterial[] = [];
 
   const skin = material(look.skin, materials);
@@ -181,11 +202,18 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
   const root = new THREE.Group();
   root.name = `avatar-${variant}`;
 
+  const trailing: THREE.Group[] = [];
+
   // Tỉ lệ: chân 0.22, thân 0.34, đầu ~0.34 của chiều cao — đầu to là điểm
   // nhấn dễ thương, và cũng để nhìn rõ biểu cảm từ xa.
-  const legLength = look.height * 0.2;
-  const bodyHeight = look.height * 0.34;
-  const headRadius = look.height * 0.19;
+  // Dáng bé: đầu ~1/3 chiều cao (cute), chân chỉ dài hơn chibi một chút.
+  const legLength = look.height * (look.kid ? 0.26 : 0.2);
+  const bodyHeight = look.height * (look.kid ? 0.31 : 0.34);
+  const headRadius = look.height * (look.kid ? 0.175 : 0.19);
+  // Bề ngang thân/tay/chân: thiếu niên mảnh hơn chibi cùng chiều cao.
+  const girth = look.height * (look.kid ? 0.88 : 1);
+  // Tay chibi ngắn theo thân; tay dáng bé buông tới hông.
+  const armLength = bodyHeight * (look.kid ? 1.12 : 1);
 
   const hipY = legLength;
   const shoulderY = hipY + bodyHeight * 0.82;
@@ -197,7 +225,7 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
   body.position.y = hipY;
 
   const torso = mesh(
-    new THREE.CapsuleGeometry(look.height * 0.135, bodyHeight * 0.55, 6, 16),
+    new THREE.CapsuleGeometry(girth * 0.135, bodyHeight * 0.55, 6, 16),
     shirt,
     [0, bodyHeight * 0.46, 0],
   );
@@ -208,8 +236,8 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
   // Vạt áo dưới: một vòng hơi loe, đủ để thân không giống cái que.
   const hem = mesh(
     new THREE.CylinderGeometry(
-      look.height * 0.152,
-      look.height * 0.168,
+      girth * 0.152,
+      girth * 0.168,
       bodyHeight * 0.24,
       16,
     ),
@@ -223,7 +251,7 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
   // Đai lưng: một vòng mảnh màu phụ, cắt ngang thân áo — chi tiết rẻ nhất để
   // thân không còn là một khối trơn.
   const belt = mesh(
-    new THREE.TorusGeometry(look.height * 0.136, look.height * 0.012, 8, 20),
+    new THREE.TorusGeometry(girth * 0.136, girth * 0.012, 8, 20),
     accent,
     [0, bodyHeight * 0.3, 0],
   );
@@ -233,7 +261,7 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
   body.add(belt);
 
   const collar = mesh(
-    new THREE.TorusGeometry(look.height * 0.093, look.height * 0.013, 8, 18),
+    new THREE.TorusGeometry(girth * 0.093, girth * 0.013, 8, 18),
     accent,
     [0, bodyHeight * 0.8, 0],
   );
@@ -246,7 +274,7 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
     // Hai sọc len ngang ngực: chi tiết rẻ nhất để chiếc áo đọc ra là "áo len".
     for (const height of [0.56, 0.64]) {
       const stripe = mesh(
-        new THREE.TorusGeometry(look.height * 0.139, look.height * 0.008, 6, 24),
+        new THREE.TorusGeometry(girth * 0.139, girth * 0.008, 6, 24),
         accent,
         [0, bodyHeight * height, 0],
       );
@@ -257,16 +285,18 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
     }
   }
 
-  // ── Khăn quàng ──────────────────────────────────────────────────────────
-  let scarfTail: THREE.Group | undefined;
+  if (look.adventurer) {
+    trailing.push(...buildAdventurer(girth, bodyHeight, body, shirt, accent, materials));
+  }
 
+  // ── Khăn quàng ──────────────────────────────────────────────────────────
   if (look.scarf !== undefined) {
     const scarf = material(look.scarf, materials);
 
     scarf.roughness = 0.95;
 
     const wrap = mesh(
-      new THREE.TorusGeometry(look.height * 0.098, look.height * 0.034, 10, 22),
+      new THREE.TorusGeometry(girth * 0.098, girth * 0.034, 10, 22),
       scarf,
       [0, bodyHeight * 0.84, 0],
     );
@@ -277,26 +307,28 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
 
     // Đuôi khăn thả sau gáy, lệch trái; gốc nhóm là chỗ khăn vắt qua cổ để
     // xoay quanh đó.
-    scarfTail = new THREE.Group();
-    scarfTail.position.set(-look.height * 0.045, bodyHeight * 0.82, -look.height * 0.085);
+    const scarfTail = swinging(1);
+
+    scarfTail.position.set(-girth * 0.045, bodyHeight * 0.82, -girth * 0.085);
 
     const tailLength = bodyHeight * 0.42;
 
     scarfTail.add(
       mesh(
-        new THREE.BoxGeometry(look.height * 0.07, tailLength, look.height * 0.022),
+        new THREE.BoxGeometry(girth * 0.07, tailLength, girth * 0.022),
         scarf,
         [0, -tailLength / 2, 0],
       ),
       // Tua rua ở mép khăn.
       mesh(
-        new THREE.BoxGeometry(look.height * 0.072, look.height * 0.02, look.height * 0.026),
+        new THREE.BoxGeometry(girth * 0.072, girth * 0.02, girth * 0.026),
         accent,
-        [0, -tailLength + look.height * 0.012, 0],
+        [0, -tailLength + girth * 0.012, 0],
       ),
     );
 
     body.add(scarfTail);
+    trailing.push(scarfTail);
   }
 
   root.add(body);
@@ -305,35 +337,55 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
   // Đùi (quần) tách khỏi cẳng chân (da): một capsule cùng màu quần cho cả ống
   // chân trông như bộ đồ liền thân, mà trẻ con thì mặc quần đùi.
   const thighGeometry = new THREE.CapsuleGeometry(
-    look.height * 0.058,
+    girth * 0.058,
     legLength * 0.34,
     4,
     12,
   );
 
   const shinGeometry = new THREE.CapsuleGeometry(
-    look.height * 0.05,
+    girth * 0.05,
     legLength * 0.3,
     4,
     12,
   );
 
   const soleGeometry = new THREE.BoxGeometry(
-    look.height * 0.105,
-    look.height * 0.035,
-    look.height * 0.16,
+    girth * 0.105,
+    girth * 0.035,
+    girth * 0.16,
   );
 
   const shoeGeometry = new THREE.BoxGeometry(
-    look.height * 0.095,
-    look.height * 0.05,
-    look.height * 0.135,
+    girth * 0.095,
+    girth * 0.05,
+    girth * 0.135,
   );
 
   const strapGeometry = new THREE.BoxGeometry(
-    look.height * 0.1,
-    look.height * 0.02,
-    look.height * 0.05,
+    girth * 0.1,
+    girth * 0.02,
+    girth * 0.05,
+  );
+
+  const bootCollarGeometry = new THREE.CylinderGeometry(
+    girth * 0.056,
+    girth * 0.06,
+    legLength * 0.16,
+    12,
+  );
+
+  const sockGeometry = new THREE.CylinderGeometry(
+    girth * 0.053,
+    girth * 0.053,
+    legLength * 0.12,
+    12,
+  );
+
+  const laceGeometry = new THREE.BoxGeometry(
+    girth * 0.05,
+    girth * 0.008,
+    girth * 0.012,
   );
 
   const legs: THREE.Group[] = [];
@@ -342,25 +394,50 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
   for (const side of [-1, 1]) {
     const hip = new THREE.Group();
 
-    hip.position.set(side * look.height * 0.075, hipY, 0);
+    hip.position.set(side * girth * 0.075, hipY, 0);
 
     hip.add(mesh(thighGeometry, shorts, [0, -legLength * 0.28, 0]));
+
+    if (look.adventurer) {
+      // Túi hộp bên ngoài ống quần.
+      hip.add(
+        mesh(
+          new THREE.BoxGeometry(girth * 0.022, legLength * 0.24, girth * 0.065),
+          shorts,
+          [side * girth * 0.058, -legLength * 0.34, 0],
+        ),
+      );
+    }
 
     // Đầu gối nằm giữa ống chân; mọi bộ phận bên dưới tính theo gốc mới này.
     const knee = new THREE.Group();
 
     knee.position.y = -legLength * 0.5;
 
-    knee.add(
-      mesh(shinGeometry, skin, [0, -legLength * 0.18, 0]),
-      mesh(soleGeometry, shoes, [0, -legLength * 0.435, look.height * 0.018]),
-      mesh(shoeGeometry, accent, [0, -legLength * 0.385, look.height * 0.012]),
-      mesh(strapGeometry, accent, [
-        0,
-        -legLength * 0.345,
-        look.height * 0.026,
-      ]),
-    );
+    if (look.adventurer) {
+      // Tất cao cổ + giày leo núi cổ lửng: đế sẫm, thân da, viền cổ màu cát,
+      // hai nấc dây buộc. Phần tử [1] vẫn là đế — test bám vào đó.
+      knee.add(
+        mesh(shinGeometry, skin, [0, -legLength * 0.18, 0]),
+        mesh(soleGeometry, material(BOOT_SOLE, materials), [0, -legLength * 0.435, girth * 0.018]),
+        mesh(shoeGeometry, shoes, [0, -legLength * 0.385, girth * 0.012]),
+        mesh(bootCollarGeometry, shoes, [0, -legLength * 0.31, 0]),
+        mesh(sockGeometry, material(SOCK, materials), [0, -legLength * 0.2, 0]),
+        mesh(laceGeometry, accent, [0, -legLength * 0.33, girth * 0.05]),
+        mesh(laceGeometry, accent, [0, -legLength * 0.27, girth * 0.05]),
+      );
+    } else {
+      knee.add(
+        mesh(shinGeometry, skin, [0, -legLength * 0.18, 0]),
+        mesh(soleGeometry, shoes, [0, -legLength * 0.435, girth * 0.018]),
+        mesh(shoeGeometry, accent, [0, -legLength * 0.385, girth * 0.012]),
+        mesh(strapGeometry, accent, [
+          0,
+          -legLength * 0.345,
+          girth * 0.026,
+        ]),
+      );
+    }
 
     hip.add(knee);
     root.add(hip);
@@ -370,48 +447,49 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
 
   // ── Tay — group xoay quanh vai, cẳng tay quanh khuỷu ────────────────────
   const upperArmGeometry = new THREE.CapsuleGeometry(
-    look.height * 0.047,
-    bodyHeight * 0.32,
+    girth * 0.047,
+    armLength * 0.32,
     4,
     12,
   );
 
   const forearmGeometry = new THREE.CapsuleGeometry(
-    look.height * 0.041,
-    bodyHeight * 0.26,
+    girth * 0.041,
+    armLength * 0.26,
     4,
     12,
   );
 
   const arms: THREE.Group[] = [];
   const elbows: THREE.Group[] = [];
+  const longSleeves = look.sweater || look.adventurer;
 
   for (const side of [-1, 1]) {
     const shoulder = new THREE.Group();
 
-    shoulder.position.set(side * look.height * 0.155, shoulderY, 0);
+    shoulder.position.set(side * girth * 0.155, shoulderY, 0);
 
-    shoulder.add(mesh(upperArmGeometry, shirt, [0, -bodyHeight * 0.2, 0]));
+    shoulder.add(mesh(upperArmGeometry, shirt, [0, -armLength * 0.2, 0]));
 
     const elbow = new THREE.Group();
 
-    elbow.position.y = -bodyHeight * 0.42;
+    elbow.position.y = -armLength * 0.42;
 
     elbow.add(
-      mesh(forearmGeometry, look.sweater ? shirt : skin, [0, -bodyHeight * 0.16, 0]),
+      mesh(forearmGeometry, longSleeves ? shirt : skin, [0, -armLength * 0.16, 0]),
       mesh(
-        new THREE.SphereGeometry(look.height * 0.052, 12, 10),
+        new THREE.SphereGeometry(girth * 0.052, 12, 10),
         skin,
-        [0, -bodyHeight * 0.32, 0],
+        [0, -armLength * 0.32, 0],
       ),
     );
 
-    if (look.sweater) {
-      // Bo tay áo len, ngay trên bàn tay.
+    if (longSleeves) {
+      // Bo tay áo, ngay trên bàn tay.
       const cuff = mesh(
-        new THREE.TorusGeometry(look.height * 0.042, look.height * 0.013, 6, 14),
+        new THREE.TorusGeometry(girth * 0.042, girth * 0.013, 6, 14),
         accent,
-        [0, -bodyHeight * 0.27, 0],
+        [0, -armLength * 0.27, 0],
       );
 
       cuff.rotation.x = Math.PI / 2;
@@ -447,7 +525,11 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
     head.add(ear);
   }
 
-  const eyeRadius = headRadius * 0.155;
+  // Mắt có tròng màu thì to tròn hơn — nét "cute" nằm ở đôi mắt.
+  const eyeRadius = headRadius * (look.eyes === undefined ? 0.155 : 0.2);
+  const irisMaterial = look.eyes === undefined ? iris : material(look.eyes, materials);
+
+  irisMaterial.roughness = 0.3;
   const eyes: THREE.Group[] = [];
 
   for (const side of [-1, 1]) {
@@ -468,8 +550,9 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
 
     const pupil = mesh(
       new THREE.SphereGeometry(eyeRadius * 0.6, 12, 10),
-      iris,
-      [0, 0, eyeRadius * 0.42],
+      irisMaterial,
+      // Nhô hơn mặt tròng trắng một chút — trùng mặt thì hai lớp nhấp nháy.
+      [0, 0, eyeRadius * 0.48],
     );
 
     pupil.scale.set(1, 1.05, 0.5);
@@ -478,12 +561,24 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
     const glint = mesh(
       new THREE.SphereGeometry(eyeRadius * 0.26, 8, 8),
       eyeWhite,
-      [-eyeRadius * 0.24, eyeRadius * 0.32, eyeRadius * 0.72],
+      [-eyeRadius * 0.24, eyeRadius * 0.32, eyeRadius * 0.8],
     );
 
     glint.scale.set(1, 1, 0.5);
 
     eye.add(white, pupil, glint);
+
+    if (look.eyes !== undefined) {
+      // Tròng có màu thì cần con ngươi sẫm ở giữa, không thì mắt "đục".
+      const core = mesh(
+        new THREE.SphereGeometry(eyeRadius * 0.3, 10, 8),
+        iris,
+        [0, -eyeRadius * 0.02, eyeRadius * 0.7],
+      );
+
+      core.scale.set(1, 1.1, 0.5);
+      eye.add(core);
+    }
     head.add(eye);
     eyes.push(eye);
   }
@@ -532,7 +627,7 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
     head.add(cheek);
   }
 
-  head.add(...buildHair(look, headRadius, hair, accent, materials));
+  head.add(...buildHair(look, headRadius, hair, accent, materials, trailing));
 
   root.add(head);
 
@@ -555,7 +650,7 @@ export function createAvatar(variant: AvatarVariant): AvatarRig {
     kneeL: knees[0],
     kneeR: knees[1],
     eyes,
-    scarfTail,
+    trailing,
     materials,
   };
 }
@@ -573,6 +668,7 @@ function buildHair(
   hair: THREE.Material,
   accent: THREE.Material,
   materials: THREE.MeshStandardMaterial[],
+  trailing: THREE.Group[],
 ): THREE.Object3D[] {
   const parts: THREE.Object3D[] = [];
 
@@ -589,7 +685,9 @@ function buildHair(
     Math.PI * 0.53,
   );
 
-  parts.push(mesh(capGeometry, hair));
+  const cap = mesh(capGeometry, hair);
+
+  parts.push(cap);
 
   /** Mảng tóc hình cầu cụt: `width` = độ rộng kinh tuyến (radian), `drop` = độ dài cung. */
   const fringe = (width: number, drop: number, offset = 0, tilt = 0) => {
@@ -659,6 +757,84 @@ function buildHair(
     parts.push(tie);
   }
 
+  if (look.hairStyle === "messy") {
+    // Chỏm nền ngả ra sau: lộ trán và mắt (mặt biết cười), phủ kín gáy.
+    cap.rotation.x = -0.6;
+    parts.push(fringe(Math.PI * 0.9, Math.PI * 0.27));
+
+    // Độ bồng: những búi cầu nhô lệch nhau trên đỉnh và sau gáy. Đội mũ lưỡi
+    // trai thì búi đỉnh xuyên qua chóp mũ, nên bỏ.
+    if (look.accessory !== "cap") {
+      for (const [x, y, z, size] of MESSY_TUFTS) {
+        parts.push(
+          mesh(
+            new THREE.SphereGeometry(headRadius * size, 12, 10),
+            hair,
+            direction(x, y, z).multiplyScalar(headRadius * 0.86).toArray(),
+          ),
+        );
+      }
+    }
+
+    // Lọn tóc tự do: trước trán, cạnh tai, sau gáy — bay theo đà chạy.
+    for (const [px, py, pz, dx, dy, dz, length, sway] of MESSY_LOCKS) {
+      const lock = swinging(sway);
+
+      lock.position.set(px * headRadius, py * headRadius, pz * headRadius);
+
+      const along = direction(dx, dy, dz);
+      const cone = mesh(new THREE.ConeGeometry(headRadius * 0.11, headRadius * length, 8), hair);
+
+      // Nón mặc định chĩa +Y; lật cho mũi chĩa theo hướng lọn tóc rủ.
+      cone.quaternion.setFromUnitVectors(UP, along);
+      cone.position.copy(along).multiplyScalar((headRadius * length) / 2);
+      lock.add(cone);
+      parts.push(lock);
+      trailing.push(lock);
+    }
+  }
+
+  if (look.accessory === "goggles") {
+    // Kính dã ngoại đẩy ngược lên tóc: quai vòng quanh đầu nghiêng (trước
+    // cao, sau thấp), hai mắt kính tựa trên mái trước.
+    const strap = material(GOGGLE_STRAP, materials);
+    const glass = material(GOGGLE_GLASS, materials);
+    const metal = material(GOGGLE_RIM, materials);
+
+    glass.roughness = 0.12;
+    glass.metalness = 0.35;
+    metal.roughness = 0.4;
+    metal.metalness = 0.55;
+
+    const tilt = direction(0, 0.95, -0.3);
+    const center = new THREE.Vector3(0, headRadius * 0.52, -headRadius * 0.06);
+    const ringRadius = headRadius * 0.93;
+    const band = mesh(new THREE.TorusGeometry(ringRadius, headRadius * 0.045, 6, 28), strap, center.toArray());
+
+    band.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tilt);
+    parts.push(band);
+
+    const ahead = direction(0, 0.37, 0.93);
+
+    for (const side of [-1, 1]) {
+      const at = center
+        .clone()
+        .addScaledVector(ahead, ringRadius * Math.cos(0.45))
+        .addScaledVector(new THREE.Vector3(1, 0, 0), side * ringRadius * Math.sin(0.45));
+      const out = at.clone().normalize();
+      const rim = mesh(new THREE.CylinderGeometry(headRadius * 0.24, headRadius * 0.24, headRadius * 0.14, 18), metal, at.toArray());
+      const lens = mesh(
+        new THREE.CylinderGeometry(headRadius * 0.19, headRadius * 0.19, headRadius * 0.05, 18),
+        glass,
+        at.clone().addScaledVector(out, headRadius * 0.07).toArray(),
+      );
+
+      rim.quaternion.setFromUnitVectors(UP, out);
+      lens.quaternion.copy(rim.quaternion);
+      parts.push(rim, lens);
+    }
+  }
+
   if (look.accessory === "cap") {
     const crown = mesh(
       new THREE.SphereGeometry(headRadius * 1.06, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.42),
@@ -698,6 +874,165 @@ function buildHair(
 
   return parts;
 }
+
+/**
+ * Áo khoác gió mở vạt + balo + túi đeo chéo. Gắn vào `body` để lắc theo thân;
+ * trả về những group lủng lẳng (móc khoá, túi đeo chéo).
+ */
+function buildAdventurer(
+  girth: number,
+  bodyHeight: number,
+  body: THREE.Group,
+  jacket: THREE.Material,
+  trim: THREE.Material,
+  materials: THREE.MeshStandardMaterial[],
+): THREE.Group[] {
+  const h = girth;
+  // Mặt trước/sau thân áo (bán kính capsule 0.135h, ép dẹt 0.82).
+  const front = h * 0.113;
+  const leather = material(LEATHER, materials);
+
+  // Vạt áo mở lộ áo thun trắng sọc xám, hai nẹp lót vàng hai bên vạt.
+  body.add(
+    mesh(new THREE.BoxGeometry(h * 0.1, bodyHeight * 0.62, h * 0.02), material(TEE, materials), [0, bodyHeight * 0.48, front]),
+  );
+
+  const stripe = material(TEE_STRIPE, materials);
+
+  for (const height of [0.28, 0.36, 0.44, 0.52, 0.6, 0.68]) {
+    body.add(mesh(new THREE.BoxGeometry(h * 0.101, h * 0.01, h * 0.022), stripe, [0, bodyHeight * height, front]));
+  }
+
+  for (const side of [-1, 1]) {
+    body.add(
+      mesh(new THREE.BoxGeometry(h * 0.022, bodyHeight * 0.66, h * 0.03), trim, [side * h * 0.061, bodyHeight * 0.47, front]),
+      // Túi dưới: thân xanh, nắp vàng.
+      mesh(new THREE.BoxGeometry(h * 0.065, bodyHeight * 0.14, h * 0.02), jacket, [side * h * 0.1, bodyHeight * 0.22, h * 0.13]),
+      mesh(new THREE.BoxGeometry(h * 0.068, bodyHeight * 0.05, h * 0.024), trim, [side * h * 0.1, bodyHeight * 0.3, h * 0.13]),
+    );
+  }
+
+  // Mũ trùm lớn rủ sau gáy, lót vàng lộ ra quanh cổ.
+  const hood = mesh(new THREE.SphereGeometry(h * 0.075, 14, 10), jacket, [0, bodyHeight * 0.9, -h * 0.09]);
+
+  hood.scale.set(1.6, 0.85, 0.9);
+  body.add(hood);
+
+  const lining = mesh(new THREE.TorusGeometry(h * 0.088, h * 0.02, 8, 20), trim, [0, bodyHeight * 0.88, -h * 0.01]);
+
+  lining.rotation.x = Math.PI / 2 + 0.25;
+  body.add(lining);
+
+  // ── Balo da nâu ──────────────────────────────────────────────────────────
+  const back = -h * 0.16;
+
+  body.add(
+    mesh(new THREE.BoxGeometry(h * 0.19, bodyHeight * 0.55, h * 0.09), leather, [0, bodyHeight * 0.5, back]),
+    mesh(new THREE.BoxGeometry(h * 0.195, bodyHeight * 0.16, h * 0.095), material(LEATHER_DARK, materials), [0, bodyHeight * 0.72, back - h * 0.004]),
+  );
+
+  // Quai đeo qua vai xuống ngực.
+  for (const side of [-1, 1]) {
+    body.add(mesh(new THREE.BoxGeometry(h * 0.026, bodyHeight * 0.5, h * 0.012), leather, [side * h * 0.085, bodyHeight * 0.58, front + h * 0.006]));
+  }
+
+  // Diều vải xanh ngọc giắt sau balo, ló lên khỏi vai phải.
+  const kite = mesh(new THREE.BoxGeometry(h * 0.1, h * 0.1, h * 0.006), material(KITE_CLOTH, materials), [-h * 0.085, bodyHeight * 0.92, back - h * 0.03]);
+
+  kite.rotation.z = Math.PI / 4 + 0.25;
+  body.add(kite);
+
+  // Cánh lượn gấp cuộn ngang dưới đáy balo, hai đai buộc.
+  const glider = mesh(new THREE.CylinderGeometry(h * 0.035, h * 0.035, h * 0.22, 12), material(GLIDER, materials), [0, bodyHeight * 0.17, back]);
+
+  glider.rotation.z = Math.PI / 2;
+  body.add(glider);
+
+  for (const side of [-1, 1]) {
+    const tie = mesh(new THREE.TorusGeometry(h * 0.037, h * 0.006, 6, 14), leather, [side * h * 0.06, bodyHeight * 0.17, back]);
+
+    tie.rotation.y = Math.PI / 2;
+    body.add(tie);
+  }
+
+  // Dây đeo chéo từ vai trái (+x) xuống túi da bên hông phải (−x).
+  const sling = mesh(new THREE.BoxGeometry(h * 0.016, bodyHeight * 0.95, h * 0.01), leather, [-h * 0.01, bodyHeight * 0.5, front + h * 0.016]);
+
+  sling.rotation.z = -0.62;
+  body.add(sling);
+
+  const satchel = swinging(0.35);
+
+  satchel.position.set(-h * 0.13, bodyHeight * 0.2, h * 0.1);
+  satchel.add(
+    mesh(new THREE.BoxGeometry(h * 0.075, h * 0.07, h * 0.035), leather, [0, -h * 0.04, 0]),
+    mesh(new THREE.BoxGeometry(h * 0.077, h * 0.03, h * 0.038), material(LEATHER_DARK, materials), [0, -h * 0.018, 0.001]),
+  );
+
+  // Móc khoá đồng treo ở khoá kéo ngực — lắc theo bước chân.
+  const charm = swinging(1);
+
+  charm.position.set(-h * 0.05, bodyHeight * 0.66, front + h * 0.02);
+  charm.add(
+    mesh(new THREE.CylinderGeometry(h * 0.003, h * 0.003, h * 0.04, 4), leather, [0, -h * 0.02, 0]),
+    mesh(new THREE.BoxGeometry(h * 0.016, h * 0.03, h * 0.006), material(CHARM, materials), [0, -h * 0.05, 0]),
+  );
+
+  body.add(satchel, charm);
+
+  return [charm, satchel];
+}
+
+/** Group treo lủng lẳng; `sway` là độ bay theo đà (lớp animation đọc). */
+function swinging(sway: number): THREE.Group {
+  const group = new THREE.Group();
+
+  group.userData.sway = sway;
+
+  return group;
+}
+
+function direction(x: number, y: number, z: number): THREE.Vector3 {
+  return new THREE.Vector3(x, y, z).normalize();
+}
+
+const UP = new THREE.Vector3(0, 1, 0);
+
+/** Búi tóc rối: hướng từ tâm đầu + cỡ (theo bán kính đầu). */
+const MESSY_TUFTS: readonly [number, number, number, number][] = [
+  [0, 1, 0.25, 0.32],
+  [0.5, 0.82, 0.15, 0.27],
+  [-0.48, 0.84, 0.2, 0.29],
+  [0.25, 0.78, -0.55, 0.3],
+  [-0.32, 0.72, -0.6, 0.28],
+  [0.66, 0.5, -0.4, 0.24],
+  [-0.66, 0.52, -0.32, 0.25],
+  [0, 0.45, -0.88, 0.27],
+];
+
+/** Lọn tóc: chỗ treo [x,y,z] · hướng rủ [x,y,z] · dài · độ bay. */
+const MESSY_LOCKS: readonly [number, number, number, number, number, number, number, number][] = [
+  [-0.2, 0.74, 0.72, -0.2, -0.75, 0.6, 0.42, 0.25],
+  [0.12, 0.78, 0.7, 0.15, -0.7, 0.65, 0.36, 0.25],
+  [0.38, 0.7, 0.66, 0.35, -0.8, 0.45, 0.3, 0.25],
+  [-0.9, 0.35, 0.15, -0.15, -1, 0.1, 0.46, 0.8],
+  [0.9, 0.35, 0.15, 0.15, -1, 0.1, 0.46, 0.8],
+  [-0.3, 0.1, -0.96, -0.3, -0.6, -0.7, 0.4, 0.5],
+  [0.3, 0.15, -0.96, 0.3, -0.6, -0.7, 0.4, 0.5],
+];
+
+const BOOT_SOLE = 0x3a2e26;
+const SOCK = 0xf4f1ea;
+const TEE = 0xf3ecdc;
+const TEE_STRIPE = 0x8d929a;
+const LEATHER = 0x7a4e2e;
+const LEATHER_DARK = 0x5a3820;
+const KITE_CLOTH = 0x5fb3b0;
+const GLIDER = 0xe9dcc0;
+const CHARM = 0xc9a14a;
+const GOGGLE_RIM = 0x9aa0a6;
+const GOGGLE_STRAP = 0x5a3a26;
+const GOGGLE_GLASS = 0x9fd6e2;
 
 /** Màu da sẫm hơn cho mũi — cùng tông, không phải màu mới. */
 function skinShadow(skin: number): number {

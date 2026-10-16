@@ -1,6 +1,8 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import { terrainHeight } from "../terrain/heightfield";
+import { POND_RADIUS } from "./layout";
 
 import type { Obstacle } from "../physics/collide";
 
@@ -22,14 +24,13 @@ export interface PropPalette {
 }
 
 export const VILLAGE_PALETTE: PropPalette = {
-  wall: 0xf4e6cd,
+  // Tường quét vôi vàng, mái ngói đỏ son — màu nhà quê Bắc Bộ.
+  wall: 0xf1dba8,
   roof: 0xb4553f,
   wood: 0x8a5a3a,
   frame: 0xfdf8ee,
   glass: 0xa9d9f2,
 };
-
-const CANOPY_GREENS = [0x5f9c3c, 0x6fae45, 0x4f8c34, 0x7cbb4e];
 
 function standard(color: number, options: THREE.MeshStandardMaterialParameters = {}) {
   return new THREE.MeshStandardMaterial({
@@ -144,14 +145,33 @@ function roofSlabs(
   const slope = Math.hypot(depth / 2, rise);
   const angle = Math.atan2(rise, depth / 2);
 
+  // Hàng ngói: những gờ ngang sẫm màu hơn chạy dọc mái — mái nhìn ra là mái
+  // ngói lợp, không phải một tấm tôn sơn đỏ.
+  const tileColor = (material as THREE.MeshStandardMaterial).color.clone().multiplyScalar(0.78);
+  const tile = standard(tileColor.getHex(), { roughness: 0.95 });
+  const fascia = standard(0x7a5236);
+
   for (const side of [-1, 1]) {
-    const slab = box(width, 0.16, slope + 0.24, material, [
+    const length = slope + 0.24;
+    const slab = box(width, 0.16, length, material, [
       0,
       topY + rise / 2,
       (side * depth) / 4,
     ]);
 
     slab.rotation.x = side * angle;
+
+    for (let along = -length / 2 + 0.2; along < length / 2; along += 0.34) {
+      const row = box(width, 0.05, 0.07, tile, [0, 0.1, along]);
+
+      row.castShadow = false;
+      slab.add(row);
+    }
+
+    // Diềm gỗ ở hai đầu hồi.
+    for (const end of [-1, 1]) {
+      slab.add(box(0.08, 0.22, length, fascia, [(end * width) / 2, 0, 0]));
+    }
 
     group.add(slab);
   }
@@ -193,11 +213,15 @@ export const HOUSE = {
   stepY: 0.22,
 } as const;
 
+/** Miệng ống khói (toạ độ cục bộ của nhà) — khói bếp bốc lên từ đây. */
+export const CHIMNEY_TOP = { x: 2.1, y: HOUSE.wallHeight + 2.25, z: -1.2 } as const;
+
 /** Tâm hai cửa sổ mặt tiền (X cục bộ); ô kính 1,2 × 1,05 m ở độ cao 1,9 m. */
 const FRONT_WINDOWS = [1.4, 2.7] as const;
 
 /** Cửa sổ tường hông phải (+X): tâm theo Z, độ cao tâm, kích thước ô. */
-export const SIDE_WINDOW = { z: 0.6, y: 1.9, width: 1.1, height: 0.95 } as const;
+// Rộng hơn và thấp hơn một chút: ngồi trên ghế đẩu vẫn thấy được cả cái ao.
+export const SIDE_WINDOW = { z: 0.6, y: 1.8, width: 1.45, height: 1.1 } as const;
 
 /**
  * Ghế đẩu cạnh cửa sổ hông — chỗ ngồi ngắm sân (toạ độ cục bộ của nhà;
@@ -344,6 +368,20 @@ export function createHouse(palette: PropPalette = VILLAGE_PALETTE): THREE.Group
     ]),
   );
 
+  // Chân tường sẫm màu như vệt mưa hắt bùn — tường mới có tuổi. Một vành mỏng
+  // ôm sát mặt ngoài, mặt tiền chừa khoảng cửa.
+  const plinthBand = standard(0xc9ad7c);
+  const band = 0.55;
+  const skin = wallThickness / 2 + 0.015;
+
+  house.add(
+    box(width + 0.03, band, 0.02, plinthBand, [0, band / 2, -halfDepth - skin + 0.01]),
+    box(0.02, band, depth + 0.03, plinthBand, [-halfWidth - skin + 0.01, band / 2, 0]),
+    box(0.02, band, depth + 0.03, plinthBand, [halfWidth + skin - 0.01, band / 2, 0]),
+    box(frontLeft, band, 0.02, plinthBand, [-halfWidth + frontLeft / 2, band / 2, halfDepth + skin - 0.01]),
+    box(frontRight - 0.2, band, 0.02, plinthBand, [HOUSE.doorTo + 0.2 + (frontRight - 0.2) / 2, band / 2, halfDepth + skin - 0.01]),
+  );
+
   // Bó hè quanh chân tường, cho ngôi nhà có "bệ" chứ không nổi lơ lửng.
   house.add(
     box(width + 0.5, HOUSE.plinthY, depth + 0.5, standard(0xe6d6bb), [
@@ -358,7 +396,7 @@ export function createHouse(palette: PropPalette = VILLAGE_PALETTE): THREE.Group
   house.add(roofGroup);
 
   // Ống khói
-  house.add(box(0.7, 1.5, 0.7, standard(0xc2867a), [2.1, wallHeight + 1.5, -1.2]));
+  house.add(box(0.7, 1.5, 0.7, standard(0xc2867a), [CHIMNEY_TOP.x, wallHeight + 1.5, CHIMNEY_TOP.z]));
 
   // ── Cửa ra vào (mặt tiền hướng +Z) ─────────────────────────────────────
   // Cánh cửa ĐÓNG khi dựng: người chơi bắt đầu trong nhà, và mở cửa là cách họ
@@ -448,6 +486,46 @@ export function createHouse(palette: PropPalette = VILLAGE_PALETTE): THREE.Group
     );
     house.add(box(1.3, 0.07, 0.16, frame, [offset, 1.9, depth / 2 + 0.14]));
     house.add(box(0.07, 1.15, 0.16, frame, [offset, 1.9, depth / 2 + 0.14]));
+  }
+
+  // Cánh chớp gỗ sơn xanh mở hai bên dãy cửa sổ, bồn hoa dưới bậu.
+  const shutter = standard(0x5f8f86);
+  const slat = standard(0x4d7a72);
+
+  for (const [edge, side] of [
+    [FRONT_WINDOWS[0] - 0.6, -1],
+    [FRONT_WINDOWS[1] + 0.6, 1],
+  ] as const) {
+    const hinge = new THREE.Group();
+
+    hinge.position.set(edge + side * 0.08, 1.9, depth / 2 + 0.2);
+    hinge.rotation.y = side * -1.2;
+    hinge.add(box(0.55, 1.05, 0.05, shutter, [side * 0.28, 0, 0]));
+
+    for (const y of [-0.3, -0.1, 0.1, 0.3]) hinge.add(box(0.45, 0.04, 0.07, slat, [side * 0.28, y, 0]));
+
+    house.add(hinge);
+  }
+
+  const planterWidth = FRONT_WINDOWS[1] - FRONT_WINDOWS[0] + 1.2;
+  const planterX = (FRONT_WINDOWS[0] + FRONT_WINDOWS[1]) / 2;
+
+  house.add(box(planterWidth, 0.2, 0.26, standard(0xa8603e), [planterX, 1.25, depth / 2 + 0.3]));
+
+  const blooms = [0xe0573a, 0xf2a1b5, 0xffd45f, 0xf7f2ea];
+  const leaves = standard(0x5e9a45, { flatShading: true });
+
+  for (let index = 0; index < 9; index += 1) {
+    const x = planterX - planterWidth / 2 + 0.2 + (index * (planterWidth - 0.4)) / 8;
+    const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 0), leaves);
+
+    leaf.position.set(x, 1.42, depth / 2 + 0.3);
+    house.add(leaf);
+
+    const bloom = new THREE.Mesh(new THREE.IcosahedronGeometry(0.06, 0), standard(blooms[index % blooms.length]));
+
+    bloom.position.set(x + 0.05, 1.53, depth / 2 + 0.36);
+    house.add(bloom);
   }
 
   // Cửa sổ hông: khung viền quanh lỗ (bốn thanh, không phải một tấm che).
@@ -621,8 +699,7 @@ function createInterior(palette: PropPalette): THREE.Group {
  *
  * Trả về toạ độ cục bộ vì ngôi nhà được đặt ở đâu là chuyện của bối cảnh (nó
  * còn bị xoay một chút cho tự nhiên), và bên gọi mới là bên biết phép biến đổi.
- * Bốn bức tường được rải thành từng hình tròn nhỏ — cùng cách làm với hàng
- * rào, và cùng một lý do: hình tròn là thứ duy nhất hệ va chạm biết.
+ * Bốn bức tường là bốn đoạn thẳng có độ dày (xem `Obstacle.toX`).
  *
  * Mặt tiền CHỪA khoảng cửa, nên đây cũng chính là chỗ nói bằng số rằng "nhà
  * này vào được".
@@ -634,23 +711,14 @@ export function createHouseObstacles(): Obstacle[] {
   const halfWidth = width / 2;
   const halfDepth = depth / 2;
 
-  /** Rải cọc chặn dọc một đoạn thẳng, bước nhỏ hơn hai lần bán kính. */
+  const WALL_THICK = 0.22;
+
+  /** Một bức tường = một đoạn thẳng có độ dày, trượt dọc theo nó là phẳng. */
   const wall = (
     from: { x: number; z: number },
     to: { x: number; z: number },
   ) => {
-    const length = Math.hypot(to.x - from.x, to.z - from.z);
-    const steps = Math.max(1, Math.ceil(length / 0.42));
-
-    for (let step = 0; step <= steps; step += 1) {
-      const t = step / steps;
-
-      obstacles.push({
-        x: from.x + (to.x - from.x) * t,
-        z: from.z + (to.z - from.z) * t,
-        radius: 0.22,
-      });
-    }
+    obstacles.push({ x: from.x, z: from.z, toX: to.x, toZ: to.z, radius: WALL_THICK });
   };
 
   // Tường hậu, hai tường hông.
@@ -658,9 +726,11 @@ export function createHouseObstacles(): Obstacle[] {
   wall({ x: -halfWidth, z: -halfDepth }, { x: -halfWidth, z: halfDepth });
   wall({ x: halfWidth, z: -halfDepth }, { x: halfWidth, z: halfDepth });
 
-  // Mặt tiền: hai đoạn, chừa đúng khoảng cửa ở giữa.
-  wall({ x: -halfWidth, z: halfDepth }, { x: doorFrom, z: halfDepth });
-  wall({ x: doorTo, z: halfDepth }, { x: halfWidth, z: halfDepth });
+  // Mặt tiền: hai đoạn, chừa khoảng cửa. Đầu đoạn lùi lại đúng độ dày tường
+  // để phần đặc của đầu tròn dừng NGAY mép khung cửa — không lấn vào lối đi
+  // (bản chuỗi hình tròn lấn 0,22 m mỗi bên, lối chỉ còn 0,08 m: chạy là kẹt).
+  wall({ x: -halfWidth, z: halfDepth }, { x: doorFrom - WALL_THICK, z: halfDepth });
+  wall({ x: doorTo + WALL_THICK, z: halfDepth }, { x: halfWidth, z: halfDepth });
 
   // Đồ đạc — vừa đủ để người chơi không đi xuyên qua giường hay bàn.
   // (Cánh cửa KHÔNG nằm ở đây: nó đóng/mở được — xem `createDoorObstacles`.)
@@ -675,14 +745,9 @@ export function createHouseObstacles(): Obstacle[] {
 
 /** Vật cản của cánh cửa lúc ĐÓNG — chặn kín khoảng cửa (toạ độ cục bộ của nhà). */
 export function createDoorObstacles(): Obstacle[] {
-  const obstacles: Obstacle[] = [];
   const z = HOUSE.depth / 2;
 
-  for (let x = HOUSE.doorFrom; x <= HOUSE.doorTo + 1e-6; x += 0.31) {
-    obstacles.push({ x, z, radius: 0.22 });
-  }
-
-  return obstacles;
+  return [{ x: HOUSE.doorFrom, z, toX: HOUSE.doorTo, toZ: z, radius: 0.22 }];
 }
 
 // ── Giếng ─────────────────────────────────────────────────────────────────
@@ -730,95 +795,368 @@ export function createWell(): THREE.Group {
 export interface TreeOptions {
   scale?: number;
   seed?: number;
+  /** Cây phượng: điểm những chùm hoa đỏ cam trên tán */
+  blossom?: boolean;
+  /** Cây đa: tán xoè rộng và thấp, rễ phụ buông từ cành xuống */
+  banyan?: boolean;
 }
+
+/** Hướng nắng chiều (cùng phía với mặt trời của `Sky`) — để tô sáng một bên tán. */
+const SUN_SIDE = new THREE.Vector3(-0.55, 0.55, 0.62).normalize();
+
+/** Bảng màu tán: [bóng dưới tán, thân tán, ánh nắng trên đỉnh]. */
+const CANOPY_PALETTES: readonly [number, number, number][] = [
+  [0x35603a, 0x5f9c3c, 0xc9dc78],
+  [0x3d6a34, 0x74ad46, 0xdde58a],
+  [0x2f5a40, 0x4f8c4a, 0xb6d58a],
+  [0x46703a, 0x86b24e, 0xe8e59a],
+];
+
+const BLOSSOM: [number, number, number] = [0x8a3326, 0xe0573a, 0xffb36b];
+
+interface Blob {
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  palette: readonly [number, number, number];
+}
+
+/**
+ * Một tán lá liền khối từ nhiều cầu mềm, tô màu theo đỉnh như vẽ tay: dưới
+ * tán sẫm và mát, đỉnh tán và phía nắng sáng ấm. Gộp thành MỘT hình — một cây
+ * là một lần vẽ chứ không phải tám.
+ */
+function paintedClump(blobs: readonly Blob[]): THREE.BufferGeometry {
+  const bottom = Math.min(...blobs.map((blob) => blob.y - blob.radius));
+  const top = Math.max(...blobs.map((blob) => blob.y + blob.radius));
+  const shade = new THREE.Color();
+  const body = new THREE.Color();
+  const light = new THREE.Color();
+  const color = new THREE.Color();
+  const normal = new THREE.Vector3();
+
+  const parts = blobs.map((blob) => {
+    const geometry = new THREE.IcosahedronGeometry(blob.radius, 1);
+
+    geometry.translate(blob.x, blob.y, blob.z);
+
+    const position = geometry.getAttribute("position") as THREE.BufferAttribute;
+    const colors = new Float32Array(position.count * 3);
+
+    shade.setHex(blob.palette[0]);
+    body.setHex(blob.palette[1]);
+    light.setHex(blob.palette[2]);
+
+    for (let index = 0; index < position.count; index += 1) {
+      const height = (position.getY(index) - bottom) / (top - bottom);
+
+      normal
+        .set(position.getX(index) - blob.x, position.getY(index) - blob.y, position.getZ(index) - blob.z)
+        .normalize();
+
+      const sunny = Math.max(0, normal.dot(SUN_SIDE));
+
+      color.copy(shade).lerp(body, Math.min(1, height * 1.4));
+      color.lerp(light, sunny * sunny * (0.25 + height * 0.55));
+      colors.set([color.r, color.g, color.b], index * 3);
+    }
+
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geometry.deleteAttribute("uv");
+
+    return geometry;
+  });
+
+  return mergeGeometries(parts)!;
+}
+
+const FOLIAGE = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
+const BARK = 0x6e4a30;
 
 export function createTree(options: TreeOptions = {}): THREE.Group {
   const tree = new THREE.Group();
   const scale = options.scale ?? 1;
   const random = mulberry(options.seed ?? 12345);
+  const palette = CANOPY_PALETTES[Math.floor(random() * CANOPY_PALETTES.length)];
+  const wide = options.banyan ? 1.7 : 1;
 
   tree.name = "tree";
 
-  const trunkHeight = 2.1 * scale;
+  const trunkHeight = (options.banyan ? 2.4 : 2.1 + random() * 0.5) * scale;
+  const lean = (random() - 0.5) * 0.12;
+  const bark = standard(BARK, { roughness: 0.95 });
 
-  const trunk = cylinder(
-    0.22 * scale,
-    0.34 * scale,
-    trunkHeight,
-    standard(0x6b4a2f, { flatShading: true }),
-    [0, trunkHeight / 2, 0],
-    10,
-  );
+  // Thân thon dần, hơi nghiêng; hai cành chẽ ra đỡ tán.
+  const trunk = cylinder(0.2 * scale, 0.36 * scale, trunkHeight, bark, [0, trunkHeight / 2, 0], 9);
 
+  trunk.rotation.z = lean;
   tree.add(trunk);
 
-  const canopyMaterial = standard(
-    CANOPY_GREENS[Math.floor(random() * CANOPY_GREENS.length)],
-    { flatShading: true, roughness: 0.95 },
-  );
+  for (const side of [-1, 1]) {
+    const length = (0.9 + random() * 0.5) * scale * wide;
+    const branch = cylinder(0.07 * scale, 0.13 * scale, length, bark, [0, 0, 0], 6);
 
-  const blobs = 4;
+    branch.position.set(side * length * 0.35, trunkHeight * 0.85 + length * 0.3, (random() - 0.5) * 0.4 * scale);
+    branch.rotation.z = -side * (0.7 + random() * 0.3);
+    tree.add(branch);
+  }
 
-  for (let index = 0; index < blobs; index += 1) {
-    const radius = (1.15 + random() * 0.7) * scale;
+  // Tán: một cầu lớn ở giữa, vòng cầu nhỏ hơn quanh nó, vài cầu nhô trên đỉnh.
+  const blobs: Blob[] = [];
+  const crown = trunkHeight + 0.9 * scale;
+  const ring = 6 + Math.floor(random() * 3);
 
-    const blob = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(radius, 0),
-      canopyMaterial,
-    );
+  blobs.push({ x: 0, y: crown, z: 0, radius: 1.45 * scale * (options.banyan ? 1.2 : 1), palette });
 
-    blob.position.set(
-      (random() - 0.5) * 1.5 * scale,
-      trunkHeight + radius * 0.45 + random() * 0.8 * scale,
-      (random() - 0.5) * 1.5 * scale,
-    );
+  for (let index = 0; index < ring; index += 1) {
+    const angle = (index / ring) * Math.PI * 2 + random() * 0.5;
+    const out = (1.0 + random() * 0.45) * scale * wide;
 
-    blob.rotation.set(random() * Math.PI, random() * Math.PI, random() * Math.PI);
-    blob.castShadow = true;
+    blobs.push({
+      x: Math.cos(angle) * out,
+      y: crown - 0.25 * scale + random() * 0.6 * scale,
+      z: Math.sin(angle) * out,
+      radius: (0.85 + random() * 0.4) * scale,
+      palette: options.blossom && random() < 0.45 ? BLOSSOM : palette,
+    });
+  }
 
-    tree.add(blob);
+  for (let index = 0; index < (options.banyan ? 2 : 3); index += 1) {
+    blobs.push({
+      x: (random() - 0.5) * 1.1 * scale,
+      y: crown + (0.75 + random() * 0.4) * scale,
+      z: (random() - 0.5) * 1.1 * scale,
+      radius: (0.75 + random() * 0.3) * scale,
+      palette: options.blossom && index === 0 ? BLOSSOM : palette,
+    });
+  }
+
+  const canopy = new THREE.Mesh(paintedClump(blobs), FOLIAGE);
+
+  canopy.castShadow = true;
+  canopy.position.x = Math.sin(lean) * -trunkHeight * 0.5;
+  tree.add(canopy);
+
+  if (options.banyan) {
+    // Rễ phụ buông thõng từ dưới tán — dáng cây đa đầu làng.
+    const root = standard(0x7d5a3c, { roughness: 1 });
+
+    for (let index = 0; index < 12; index += 1) {
+      const angle = random() * Math.PI * 2;
+      const out = (0.8 + random() * 1.3) * scale;
+      const length = (1.2 + random() * 1.3) * scale;
+      const strand = cylinder(0.025 * scale, 0.035 * scale, length, root, [0, 0, 0], 4);
+
+      strand.position.set(Math.cos(angle) * out, crown - 0.9 * scale - length / 2, Math.sin(angle) * out);
+      strand.castShadow = false;
+      tree.add(strand);
+    }
   }
 
   return tree;
+}
+
+/**
+ * Bụi tre: những thân tre mảnh có đốt, xoè ra từ một gốc rồi rủ ngọn; lá dồn
+ * lên nửa trên thành những đám vàng-xanh. Lũy tre — viền của mọi làng quê.
+ */
+export function createBamboo(seed = 7): THREE.Group {
+  const clump = new THREE.Group();
+  const random = mulberry(seed);
+  const culm = standard(0x8fae4e, { roughness: 0.7 });
+  const node = standard(0x6f8a3a, { roughness: 0.8 });
+  const blobs: Blob[] = [];
+  const palette: [number, number, number] = [0x6f9442, 0xa9c860, 0xf0f0ae];
+
+  clump.name = "bamboo";
+
+  // Thân và đốt của cả bụi gộp thành hai hình — 13 thân × 10 đốt mà để rời là
+  // hơn trăm lần vẽ cho một bụi tre.
+  const culms: THREE.BufferGeometry[] = [];
+  const nodes: THREE.BufferGeometry[] = [];
+  const pose = new THREE.Object3D();
+
+  for (let index = 0; index < 13; index += 1) {
+    const angle = random() * Math.PI * 2;
+    const height = 5 + random() * 2.6;
+    const tilt = 0.08 + random() * 0.22;
+
+    pose.position.set(Math.cos(angle) * 0.35 * random(), 0, Math.sin(angle) * 0.35 * random());
+    pose.rotation.set(Math.sin(angle) * tilt, 0, -Math.cos(angle) * tilt);
+    pose.updateMatrix();
+
+    culms.push(new THREE.CylinderGeometry(0.045, 0.06, height, 6).translate(0, height / 2, 0).applyMatrix4(pose.matrix));
+
+    for (let y = 0.55; y < height - 0.3; y += 0.55 + random() * 0.15) {
+      nodes.push(new THREE.CylinderGeometry(0.068, 0.068, 0.05, 6).translate(0, y, 0).applyMatrix4(pose.matrix));
+    }
+
+    // Lá: nhiều đám nhỏ lơ thơ dọc nửa trên của thân tới tận ngọn, chìa ra
+    // hai bên — lá tre thưa và nhẹ, không đặc như tán cây.
+    for (let leaf = 0; leaf < 6; leaf += 1) {
+      const along = height * (0.5 + leaf * 0.095);
+      const side = leaf % 2 === 0 ? 1 : -1;
+      const at = new THREE.Vector3(side * (0.25 + random() * 0.3), along, (random() - 0.5) * 0.5).applyEuler(pose.rotation);
+
+      blobs.push({
+        x: pose.position.x + at.x,
+        y: at.y,
+        z: pose.position.z + at.z,
+        radius: 0.24 + random() * 0.18,
+        palette,
+      });
+    }
+  }
+
+  const stalks = new THREE.Mesh(mergeGeometries(culms)!, culm);
+
+  stalks.castShadow = true;
+  clump.add(stalks, new THREE.Mesh(mergeGeometries(nodes)!, node));
+
+  const leaves = new THREE.Mesh(paintedClump(blobs), FOLIAGE);
+
+  // Đám lá tre dẹt như những chùm lông chim.
+  leaves.scale.set(1, 0.55, 1);
+  leaves.position.y = (blobs.reduce((sum, blob) => sum + blob.y, 0) / blobs.length) * 0.45;
+  leaves.castShadow = true;
+  clump.add(leaves);
+
+  return clump;
+}
+
+/**
+ * Cây chuối: thân giả xanh nâu, tàu lá to dài xoè ra rồi cong rủ xuống — bóng
+ * dáng góc vườn quen thuộc cạnh giếng, sau nhà.
+ */
+export function createBanana(seed = 3): THREE.Group {
+  const plant = new THREE.Group();
+  const random = mulberry(seed);
+  const height = 1.9 + random() * 0.6;
+
+  plant.name = "banana";
+  plant.add(cylinder(0.1, 0.17, height, standard(0x8b9a55, { roughness: 0.85 }), [0, height / 2, 0], 8));
+
+  const leafMaterial = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.75,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  });
+
+  const leaves = 7;
+
+  for (let index = 0; index < leaves; index += 1) {
+    const length = 1.5 + random() * 0.5;
+    const geometry = new THREE.PlaneGeometry(0.62, length, 2, 8);
+    const position = geometry.getAttribute("position") as THREE.BufferAttribute;
+    const colors = new Float32Array(position.count * 3);
+    const color = new THREE.Color();
+
+    for (let vertex = 0; vertex < position.count; vertex += 1) {
+      // Lá dựng dọc theo +Y từ cuống; uốn cong rủ xuống về phía ngọn, mép lá
+      // hơi cụp lại như lòng máng.
+      const along = (position.getY(vertex) + length / 2) / length;
+      const across = position.getX(vertex) / 0.31;
+
+      // Thon ở cuống và ở mũi, rộng ở giữa — hình lá chuối chứ không phải dải băng.
+      position.setX(vertex, position.getX(vertex) * Math.pow(Math.sin(Math.PI * Math.min(0.97, 0.08 + along)), 0.6));
+      position.setY(vertex, along * length);
+      position.setZ(vertex, -along * along * length * 0.55 + across * across * 0.06);
+
+      color.setHex(0x5f9e3c).lerp(new THREE.Color(0xc8e070), along * 0.55 + (1 - Math.abs(across)) * 0.3);
+      colors.set([color.r, color.g, color.b], vertex * 3);
+    }
+
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geometry.computeVertexNormals();
+
+    const leaf = new THREE.Mesh(geometry, leafMaterial);
+
+    leaf.position.y = height - 0.1;
+    leaf.rotation.set(0, (index / leaves) * Math.PI * 2 + random() * 0.4, 0, "YXZ");
+    // Ngả ra ngoài: lá non dựng đứng, lá già xoè ngang.
+    leaf.rotation.x = -(0.35 + random() * 0.6);
+    leaf.castShadow = true;
+    plant.add(leaf);
+  }
+
+  return plant;
 }
 
 // ── Bụi, đá, đống rơm ─────────────────────────────────────────────────────
 
 export function createBush(scale = 1): THREE.Group {
   const bush = new THREE.Group();
-  const random = mulberry(777);
-  const material = standard(0x55913d, { flatShading: true });
+  const random = mulberry(777 + Math.round(scale * 100));
+  const palette = CANOPY_PALETTES[1];
+  const blobs: Blob[] = [];
 
-  for (let index = 0; index < 3; index += 1) {
-    const blob = new THREE.Mesh(
-      new THREE.IcosahedronGeometry((0.45 + random() * 0.3) * scale, 0),
-      material,
-    );
-
-    blob.position.set(
-      (index - 1) * 0.5 * scale,
-      0.35 * scale + random() * 0.2,
-      (random() - 0.5) * 0.4 * scale,
-    );
-
-    blob.castShadow = true;
-    bush.add(blob);
+  for (let index = 0; index < 5; index += 1) {
+    blobs.push({
+      x: (index - 2) * 0.32 * scale + (random() - 0.5) * 0.2,
+      y: (0.3 + random() * 0.25) * scale,
+      z: (random() - 0.5) * 0.5 * scale,
+      radius: (0.38 + random() * 0.25) * scale,
+      palette,
+    });
   }
+
+  const mesh = new THREE.Mesh(paintedClump(blobs), FOLIAGE);
+
+  mesh.castShadow = true;
+  bush.add(mesh);
 
   return bush;
 }
 
+/** Tảng đá tròn lẳn, mặt trên phủ rêu — đá ở bờ ruộng, không phải đá sỏi góc cạnh. */
 export function createRock(scale = 1): THREE.Mesh {
-  const rock = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(0.55 * scale, 0),
-    standard(0x8d8b86, { flatShading: true, roughness: 1 }),
-  );
+  const geometry = new THREE.IcosahedronGeometry(0.55 * scale, 1);
+  const position = geometry.getAttribute("position") as THREE.BufferAttribute;
+  const colors = new Float32Array(position.count * 3);
+  const random = mulberry(91);
+  const stone = new THREE.Color(0x9a958a);
+  const moss = new THREE.Color(0x7c9a4a);
+  const color = new THREE.Color();
+
+  for (let index = 0; index < position.count; index += 1) {
+    // Lồi lõm nhẹ cho đá khỏi tròn như quả bóng.
+    const bump = 0.88 + random() * 0.2;
+
+    position.setXYZ(index, position.getX(index) * bump, position.getY(index) * bump, position.getZ(index) * bump);
+
+    const up = position.getY(index) / (0.55 * scale);
+
+    color.copy(stone).multiplyScalar(0.8 + up * 0.25).lerp(moss, Math.max(0, up - 0.35) * 1.2);
+    colors.set([color.r, color.g, color.b], index * 3);
+  }
+
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+
+  const rock = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
 
   rock.scale.set(1.15, 0.7, 1);
   rock.castShadow = true;
   rock.receiveShadow = true;
 
   return rock;
+}
+
+/** Độ cao mặt ngồi của gốc cây cụt — chỗ ngồi ngắm cảnh rải quanh làng (mét). */
+export const STUMP_HEIGHT = 0.4;
+
+/** Gốc cây cụt: vỏ sẫm, mặt cắt sáng có vòng tuổi — nhìn là biết "ngồi được". */
+export function createStump(): THREE.Group {
+  const stump = new THREE.Group();
+
+  stump.name = "stump";
+  stump.add(cylinder(0.3, 0.36, STUMP_HEIGHT, standard(0x6e4e30), [0, STUMP_HEIGHT / 2, 0], 9));
+  stump.add(cylinder(0.27, 0.27, 0.02, standard(0xd2ab72), [0, STUMP_HEIGHT, 0], 9));
+  stump.add(cylinder(0.14, 0.14, 0.022, standard(0xb38a55), [0, STUMP_HEIGHT + 0.001, 0], 9));
+
+  return stump;
 }
 
 /** Độ cao mặt ngồi của băng ghế gỗ ngoài sân (mét). */
@@ -1000,7 +1338,12 @@ export function createBellTower(): THREE.Group {
 
 // ── Ao nhỏ ────────────────────────────────────────────────────────────────
 
-export function createPond(radius = 3.2): THREE.Group {
+export { POND_RADIUS };
+
+/** Đáy ao sâu nhất, tính từ mặt đất (mét) — đủ cho `SwimTuning.depthMax`. */
+const POND_FLOOR = 1.6;
+
+export function createPond(radius = POND_RADIUS): THREE.Group {
   const pond = new THREE.Group();
 
   pond.name = "pond";
@@ -1012,15 +1355,35 @@ export function createPond(radius = 3.2): THREE.Group {
       roughness: 0.15,
       metalness: 0.25,
       transparent: true,
-      opacity: 0.82,
+      // Đủ trong để thấy người lặn và sen dưới đáy, đủ đục để vẫn là nước ao.
+      opacity: 0.62,
     }),
   );
 
+  water.name = "pond-water";
   water.rotation.x = -Math.PI / 2;
   water.position.y = 0.06;
   water.receiveShadow = true;
 
   pond.add(water);
+
+  // Lòng ao: một cái chậu bùn tròn ngay dưới lỗ khoét trên mặt đất (xem
+  // `Terrain` — mặt đất bỏ đi mọi điểm trong bán kính ao). Thành dốc gần mép
+  // rồi phẳng, để bơi sát bờ ở độ sâu tối đa vẫn không chạm đáy.
+  const bed = new THREE.Mesh(
+    new THREE.LatheGeometry(
+      [
+        new THREE.Vector2(0.001, -POND_FLOOR),
+        new THREE.Vector2(radius - 0.3, -POND_FLOOR + 0.12),
+        new THREE.Vector2(radius, 0.02),
+      ],
+      36,
+    ),
+    standard(0x56603f, { roughness: 1, side: THREE.DoubleSide }),
+  );
+
+  bed.receiveShadow = true;
+  pond.add(bed);
 
   // Bờ đất: vành khuyên dẹt giữ nước khỏi "tràn" ra cỏ.
   const bank = new THREE.Mesh(

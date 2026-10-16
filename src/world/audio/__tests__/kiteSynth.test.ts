@@ -26,3 +26,22 @@ describe("kiteSynth — ánh xạ âm thanh", () => {
     }).not.toThrow();
   });
 });
+
+describe("kiteSoundParams — giật và gần đứt", () => {
+  const base = { altitude: 40, wind: 0.5, tension: 0.5 };
+
+  it("cơn giật làm gió rít to và cao hơn", () => {
+    const calm = kiteSoundParams(base);
+    const gust = kiteSoundParams({ ...base, gust: 1 });
+
+    expect(gust.windGain).toBeGreaterThan(calm.windGain);
+    expect(gust.windFreq).toBeGreaterThan(calm.windFreq);
+  });
+
+  it("dây gần đứt thì sáo vút lên rõ rệt (> 100 Hz so với lúc căng vừa)", () => {
+    const easy = kiteSoundParams({ ...base, tension: 0.7 });
+    const strained = kiteSoundParams({ ...base, tension: 1 });
+
+    expect(strained.fluteFreq - easy.fluteFreq).toBeGreaterThan(100);
+  });
+});

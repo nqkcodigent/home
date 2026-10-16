@@ -33,6 +33,9 @@ export const YARD = {
 
   pond: { x: 17.5, z: -5.5 },
 
+  /** Cây đa cô đơn trên đỉnh đồi gió — cột mốc nhìn thấy từ giữa sân */
+  hillTree: { x: 12.5, z: -51 },
+
   clothesLine: { x: -12.5, z: -3.5 },
 
   /** Trường làng ở xa, chỉ để vọng tiếng trống và làm nền cho đường chân trời */
@@ -77,7 +80,8 @@ export const YARD = {
     [-8, -18],
     [-19, -12],
     [-22, 6],
-    [11, -12],
+    // Lệch khỏi khung cửa sổ hông — đứng ở (11, −12) là che mất cái ao.
+    [14, -17.5],
   ] as ReadonlyArray<Vec2>,
 
   bushes: [
@@ -99,7 +103,67 @@ export const YARD = {
     [-9.5, -13],
     [-13, -14.5],
   ] as ReadonlyArray<Vec2>,
+
+  /** Lũy tre: sau nhà, bìa sân phía tây, bên kia ao */
+  bamboo: [
+    [-1.5, -17.5],
+    [-18.5, -7.5],
+    [24.5, -12],
+  ] as ReadonlyArray<Vec2>,
+
+  /** Cây chuối góc vườn: cạnh giếng, hông nhà */
+  bananas: [
+    [12.3, 1.2],
+    [13.5, 4.5],
+    // Góc sau nhà — đứng ở hông nhà là chắn mất cửa sổ nhìn ra ao.
+    [1.6, -15],
+    [-9.2, -6.8],
+  ] as ReadonlyArray<Vec2>,
+
+  /** Cây phượng cạnh cổng — chỉ số trong `trees` */
+  blossomTree: 4,
 } as const;
+
+/** Tâm các lùm cây giữa đồng — để đồng cỏ giữa sân và bìa làng không trống trơn. */
+const GROVES: ReadonlyArray<Vec2> = [
+  [-30, -34],
+  [33, 22],
+  [-50, -28],
+  [26, 44],
+  [-24, 50],
+  [50, -6],
+];
+
+/**
+ * Cây trong các lùm: một cây giữa, ba cây quanh. Sinh bằng công thức như
+ * `OUTER_TREES` — hình khối và vật cản đọc chung một dãy.
+ */
+export const GROVE_TREES: ReadonlyArray<Vec2> = GROVES.flatMap(([x, z], grove) =>
+  Array.from({ length: 4 }, (_, index) => {
+    const angle = index * 2.1 + grove;
+    const radius = index === 0 ? 0 : 2.8 + (index % 2) * 1.2;
+
+    return [x + Math.cos(angle) * radius, z + Math.sin(angle) * radius] as const;
+  }),
+);
+
+/**
+ * Vành cây vòng ngoài — rìa của vùng đi được, cách sân chừng 65 mét.
+ *
+ * Sinh bằng công thức chứ không chép tay 26 cặp số: hình khối và vật cản đọc
+ * CÙNG một dãy, nên không bao giờ lệch nhau. Đây là thứ nói với người chơi
+ * "hết làng rồi" mà không cần hàng rào thứ hai — và là lý do sân không còn bị
+ * nhốt trong bốn mươi mét vuông hàng rào.
+ */
+export const OUTER_TREES: ReadonlyArray<Vec2> = Array.from(
+  { length: 26 },
+  (_, index) => {
+    const angle = (index / 26) * Math.PI * 2 + 0.19;
+    const radius = 63 + (index % 4) * 2.8;
+
+    return [Math.cos(angle) * radius, Math.sin(angle) * radius] as const;
+  },
+);
 
 /** Khoảng cách từ (x, z) tới một đoạn thẳng. */
 export function distanceToSegment(
@@ -145,3 +209,11 @@ export function distanceToPath(x: number, z: number): number {
     distanceToPolyline(x, z, YARD.wellPath),
   );
 }
+
+/**
+ * Bán kính mặt nước của cái ao (mét).
+ *
+ * Nhiều bên cùng cần con số này: hình khối (`createPond`), lỗ khoét trên mặt
+ * đất (`Terrain`), vật cản của nhân vật, và mô hình bơi.
+ */
+export const POND_RADIUS = 3.2;

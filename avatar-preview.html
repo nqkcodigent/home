@@ -1,0 +1,15 @@
+<!doctype html>
+<html><body style="margin:0;background:#cfe3c8">
+<script type="module">
+import * as THREE from "three";
+import { createAvatar } from "/src/world/character/avatar.ts";
+const r = new THREE.WebGLRenderer({ antialias: true });
+r.setSize(1200, 600); document.body.appendChild(r.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xcfe3c8);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x88aa77, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.8); sun.position.set(2, 4, 3); scene.add(sun);
+[0, -0.6, Math.PI].forEach((yaw, i) => { const a = createAvatar("player"); a.root.rotation.y = yaw; a.root.position.x = (i - 1.5) * 0.9; scene.add(a.root); });
+const f = createAvatar("friend"); f.root.position.x = 1.35; scene.add(f.root);
+const cam = new THREE.PerspectiveCamera(30, 2, 0.1, 50); cam.position.set(0, 0.75, 4.6); cam.lookAt(0, 0.65, 0);
+r.render(scene, cam);
+</script></body></html>

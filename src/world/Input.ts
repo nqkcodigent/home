@@ -28,12 +28,13 @@ const PAUSE_KEYS = new Set(["KeyM"]);
 const CAMERA_KEYS = new Set(["KeyC"]);
 
 /**
- * Phím THU DIỀU — lối ra duy nhất khỏi ván thả diều.
+ * Phím THOÁT ván con — lối ra duy nhất khỏi mọi trò chơi con (thả diều, bơi
+ * ao, đá cầu).
  *
- * `R` (reel) không trùng phím nào khác của ván, nên `A`/`D` vẫn là lạng — một
+ * `R` không trùng phím nào khác của các ván, nên `A`/`D` vẫn là lạng — một
  * phím hai nghĩa là chỗ chắc chắn sẽ có người bấm nhầm.
  */
-const KITE_EXIT_KEYS = new Set(["KeyR"]);
+const EXIT_KEYS = new Set(["KeyR"]);
 
 /** Trục lạng của diều — cùng cặp phím trái/phải với lúc đi bộ. */
 const KITE_STEER_LEFT = LEFT_KEYS;
@@ -58,6 +59,8 @@ export class Input {
 
   private stick = { forward: 0, right: 0 };
 
+  private touchRun = false;
+
   private lookX = 0;
 
   private lookY = 0;
@@ -73,9 +76,12 @@ export class Input {
 
   private cameraQueued = false;
 
-  private lockListener: ((locked: boolean) => void) | undefined;
+  private lockListener: ((locked: boolean, quiet: boolean) => void) | undefined;
 
-  private kiteExitQueued = false;
+  /** Lần nhả khoá kế tiếp là do game chủ động (mở Sổ), không phải người chơi bấm Esc. */
+  private quietUnlock = false;
+
+  private exitQueued = false;
 
   private dragging = false;
 
@@ -100,9 +106,12 @@ export class Input {
     // Chuột: bấm vào khung game là KHOÁ con trỏ (pointer lock) — từ đó chỉ cần
     // di chuột là xoay góc nhìn, không phải giữ nút. Esc là trình duyệt tự
     // nhả khoá. Cảm ứng: kéo một ngón ở nửa phải màn hình như cũ.
-    this.listen(document, "pointerlockchange", () =>
-      this.lockListener?.(this.pointerLocked),
-    );
+    this.listen(document, "pointerlockchange", () => {
+      const quiet = this.quietUnlock;
+
+      this.quietUnlock = false;
+      this.lockListener?.(this.pointerLocked, quiet);
+    });
 
     this.listen(this.element, "pointerdown", (event) =>
       this.onPointerDown(event as PointerEvent),
@@ -135,8 +144,16 @@ export class Input {
   }
 
   /** Nghe lúc khoá/nhả con trỏ — để UI báo cho người chơi biết. */
-  onPointerLock(listener: ((locked: boolean) => void) | undefined) {
+  onPointerLock(listener: ((locked: boolean, quiet: boolean) => void) | undefined) {
     this.lockListener = listener;
+  }
+
+  /** Trả con trỏ chuột cho giao diện (bảng cần bấm) — không báo như bấm Esc. */
+  releasePointer() {
+    if (!this.pointerLocked) return;
+
+    this.quietUnlock = true;
+    document.exitPointerLock?.();
   }
 
   get currentDevice(): InputDevice {
@@ -187,7 +204,7 @@ export class Input {
     this.interactQueued = false;
     this.pauseQueued = false;
     this.cameraQueued = false;
-    this.kiteExitQueued = false;
+    this.exitQueued = false;
     this.dragY = 0;
   }
 
@@ -198,6 +215,16 @@ export class Input {
 
   releaseStick() {
     this.stick = { forward: 0, right: 0 };
+    this.touchRun = false;
+  }
+
+  /** Nút giữ-để-chạy trên màn hình cảm ứng (dưới nước là lặn). */
+  setTouchRun(held: boolean) {
+    this.touchRun = held;
+  }
+
+  private running(): boolean {
+    return this.touchRun || [...this.held].some((code) => RUN_KEYS.has(code));
   }
 
   /** Nút tương tác trên màn hình: coi như vừa bấm phím tương tác. */
@@ -222,13 +249,43 @@ export class Input {
       if (LEFT_KEYS.has(code)) right -= 1;
     }
 
-    const run = [...this.held].some((code) => RUN_KEYS.has(code));
+    const run = this.running();
 
     // Cần điều khiển cộng thêm rồi kẹp lại: vừa đẩy cần vừa giữ phím vẫn êm.
     return {
       forward: clamp(forward + this.stick.forward),
       right: clamp(right + this.stick.right),
       run,
+    };
+  }
+
+  /**
+   * Trục di chuyển cho ván con TỰ LÁI nhân vật (bơi ao): giống `snapshot()` ở
+   * mọi mặt, trừ việc đọc được cả khi input đang bị khoá.
+   *
+   * Lý do tồn tại: `snapshot()` trả về rỗng khi muted — đúng với ván diều
+   * (người chơi đứng một chỗ mà kéo dây), nhưng ván bơi lại khoá lớp đi bộ để
+   * chính nó lái nhân vật, mà người chơi thì vẫn phải bơi bằng `W` `A` `S` `D`.
+   * Ván đá cầu ngược lại: nó giữ nguyên quyền đi lại nên dùng `snapshot()`.
+   */
+  swimInput(): { forward: number; turn: number; dive: boolean } {
+    let forward = 0;
+    let turn = 0;
+
+    for (const code of this.held) {
+      if (FORWARD_KEYS.has(code)) forward += 1;
+      if (BACK_KEYS.has(code)) forward -= 1;
+      if (RIGHT_KEYS.has(code)) turn += 1;
+      if (LEFT_KEYS.has(code)) turn -= 1;
+    }
+
+    // Trong nước thì `A` `D` là QUAY người, không phải bước ngang — chèo ngang
+    // giữa ao thì trông như con cua.
+    return {
+      forward: clamp(forward + this.stick.forward),
+      turn: clamp(turn + this.stick.right),
+      // Cùng phím chạy: trên cạn giữ Shift là chạy, dưới nước là lặn.
+      dive: this.running(),
     };
   }
 
@@ -275,25 +332,25 @@ export class Input {
   }
 
   /**
-   * Nút "thu diều" trên bảng điều khiển — bản cảm ứng của phím `R`.
+   * Nút "thoát trò chơi" trên bảng điều khiển — bản cảm ứng của phím `R`.
    *
-   * Gộp vào đúng hàng đợi của `consumeKiteExit()` để ván diều chỉ có một đường
+   * Gộp vào đúng hàng đợi của `consumeExit()` để mỗi ván con chỉ có một đường
    * thoát duy nhất, thay vì phải phân biệt bàn phím hay cảm ứng.
    */
-  queueKiteExit() {
-    this.kiteExitQueued = true;
+  queueExit() {
+    this.exitQueued = true;
   }
 
   /**
-   * true nếu trong frame này người chơi vừa bấm phím thu diều.
+   * true nếu trong frame này người chơi vừa bấm phím thoát ván con (`R`).
    *
    * Đọc xong là xoá, và chỉ nhận cú bấm MỚI — giữ phím `R` suốt ván không
    * làm gì cả cho tới khi người chơi thật sự bấm lại.
    */
-  consumeKiteExit(): boolean {
-    const pressed = this.kiteExitQueued;
+  consumeExit(): boolean {
+    const pressed = this.exitQueued;
 
-    this.kiteExitQueued = false;
+    this.exitQueued = false;
 
     return pressed;
   }
@@ -350,8 +407,8 @@ export class Input {
       this.cameraQueued = true;
     }
 
-    if (KITE_EXIT_KEYS.has(code) && !event.repeat) {
-      this.kiteExitQueued = true;
+    if (EXIT_KEYS.has(code) && !event.repeat) {
+      this.exitQueued = true;
     }
 
     // Space/Enter đang là "đọc tiếp" của dialog — không đánh dấu là di chuyển.

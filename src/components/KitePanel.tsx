@@ -86,7 +86,7 @@ export function KitePanel({ data, result }: Props) {
                 </div>
 
                 <span className="kite__label kite__label--wind">
-                  Gió
+                  {data.gust ? <span className="kite__gust">gió giật · thả dây!</span> : "Gió"}
                   <WindArrow degrees={data.windDirection ?? 0} />
                   <WindMeter strength={data.wind ?? 0} />
                 </span>
@@ -113,7 +113,7 @@ export function KitePanel({ data, result }: Props) {
                 className={`kite__exit${data.hint ? " is-due" : ""}`}
                 // Không để cú bấm lọt xuống khung game.
                 onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => gameEvents.emit("kiteExit", undefined)}
+                onClick={() => gameEvents.emit("exitActivity", undefined)}
                 aria-label="Thu diều và quay lại đi dạo"
               >
                 <kbd>R</kbd> thu diều, quay lại đi dạo

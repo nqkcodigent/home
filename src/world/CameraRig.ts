@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import { Tweens, easeInOutSine } from "./Tween";
 import { terrainHeight } from "./terrain/heightfield";
+import { obstacleOffset } from "./physics/collide";
 
 import type { LookDelta } from "./Input";
 import type { Obstacle } from "./physics/collide";
@@ -84,6 +85,13 @@ export function boomClearance(
 
   for (const collider of colliders) {
     const radius = collider.radius + margin;
+
+    if (collider.toX !== undefined) {
+      best = Math.min(best, segmentClearance(fromX, fromZ, offsetX, offsetZ, collider, radius));
+
+      continue;
+    }
+
     const dx = fromX - collider.x;
     const dz = fromZ - collider.z;
 
@@ -108,6 +116,32 @@ export function boomClearance(
   }
 
   return Math.max(MIN_BOOM, best);
+}
+
+/**
+ * Như trên, cho vật cản dạng đoạn (tường): dò dọc cần gạt từng bước 1/48.
+ * shortcut: lấy mẫu chứ không giải đúng tia–viên thuốc, sai tối đa ~1/48 cần gạt
+ * (≈10 cm) — đủ cho camera; cần chính xác hơn thì giải giao tia–hình hộp + hai đầu tròn.
+ */
+function segmentClearance(
+  fromX: number,
+  fromZ: number,
+  offsetX: number,
+  offsetZ: number,
+  collider: Obstacle,
+  radius: number,
+): number {
+  if (obstacleOffset(collider, fromX, fromZ).distance <= radius) return MIN_BOOM;
+
+  for (let step = 1; step <= 48; step += 1) {
+    const t = step / 48;
+
+    if (obstacleOffset(collider, fromX + offsetX * t, fromZ + offsetZ * t).distance < radius) {
+      return (step - 1) / 48;
+    }
+  }
+
+  return 1;
 }
 
 export class CameraRig {

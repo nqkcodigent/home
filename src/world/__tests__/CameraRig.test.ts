@@ -195,6 +195,17 @@ describe("CameraRig — góc máy tự do", () => {
 });
 
 describe("CameraRig — cần gạt không bay xuyên vật cản", () => {
+  it("boomClearance(): tường dạng đoạn cắt cần gạt trước mặt tường", () => {
+    const wall = [{ x: 3, z: -5, toX: 3, toZ: 5, radius: 0.2 }];
+
+    // Mặt tường + lề ở 3 − 0,2 − 0,45 = 2,35 m; lấy mẫu 1/48 nên sai < 0,1 m.
+    const reach = boomClearance(0, 0, 4, 0, wall) * 4;
+
+    expect(reach).toBeLessThanOrEqual(2.35);
+    expect(reach).toBeGreaterThan(2.25);
+    expect(boomClearance(0, 0, -4, 0, wall)).toBe(1);
+  });
+
   it("boomClearance(): cắt đúng chỗ chạm vật cản đầu tiên", () => {
     const wall = [{ x: 3, z: 0, radius: 1 }];
 
