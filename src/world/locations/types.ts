@@ -5,6 +5,7 @@ import type { Character } from "../character/Character";
 import type { Engine } from "../Engine";
 import type { Obstacle } from "../physics/collide";
 import type { Spot } from "../interact/spots";
+import type { SkyFocus } from "../world/Creatures";
 
 /**
  * Hợp đồng giữa thế giới và bộ máy của game.
@@ -46,6 +47,20 @@ export interface LocationRuntime {
   footstepSlot: AudioSlot;
   /** Hướng thả diều (mặt phẳng XZ) — diều phải bay ra chỗ trống */
   kiteForward?: { x: number; z: number };
+  /**
+   * Cái ao: tâm và bán kính THẬT của mặt nước. Ván bơi cần con số này chứ không
+   * suy ra từ hình khối — bơi ra ngoài mép ao là bơi lên cỏ.
+   */
+  pond?: { x: number; z: number; radius: number };
+  /**
+   * Điểm trên trời cho đàn chim bám theo (con diều). `WorldGame` đẩy vào mỗi
+   * frame lúc đang thả diều; `undefined` là chim về lộ trình vòng quanh sân.
+   */
+  setSkyFocus?: (focus: SkyFocus | undefined) => void;
+  /** Mức chạng vạng 0…1; `instant` để đặt ngay (lúc vào game) thay vì trôi dần */
+  setDusk?: (level: number, instant?: boolean) => void;
+  /** Đổi màu đuôi con diều nằm chờ trên cỏ (trang phục) */
+  kiteTail?: (color: number | undefined) => void;
   /** Vật cản tĩnh — camera đọc để không bay xuyên tường, gốc cây */
   colliders?: readonly Obstacle[];
   /** Chuyển động riêng của thế giới (cây đung đưa, cửa đang mở…) */

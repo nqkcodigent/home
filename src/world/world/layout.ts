@@ -101,6 +101,24 @@ export const YARD = {
   ] as ReadonlyArray<Vec2>,
 } as const;
 
+/**
+ * Vành cây vòng ngoài — rìa của vùng đi được, cách sân chừng 65 mét.
+ *
+ * Sinh bằng công thức chứ không chép tay 26 cặp số: hình khối và vật cản đọc
+ * CÙNG một dãy, nên không bao giờ lệch nhau. Đây là thứ nói với người chơi
+ * "hết làng rồi" mà không cần hàng rào thứ hai — và là lý do sân không còn bị
+ * nhốt trong bốn mươi mét vuông hàng rào.
+ */
+export const OUTER_TREES: ReadonlyArray<Vec2> = Array.from(
+  { length: 26 },
+  (_, index) => {
+    const angle = (index / 26) * Math.PI * 2 + 0.19;
+    const radius = 63 + (index % 4) * 2.8;
+
+    return [Math.cos(angle) * radius, Math.sin(angle) * radius] as const;
+  },
+);
+
 /** Khoảng cách từ (x, z) tới một đoạn thẳng. */
 export function distanceToSegment(
   x: number,

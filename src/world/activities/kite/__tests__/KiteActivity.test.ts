@@ -260,6 +260,59 @@ describe("KiteActivity — vòng đời", () => {
     harness.stop();
   });
 
+  it("con diều biết mình ở đâu NGAY trước khung hình đầu — chim bám theo nó, không lao về gốc sân", async () => {
+    const harness = makeHarness();
+
+    // Đọc TRƯỚC khi ván chạy: `WorldGame` lấy điểm này ở listener đầu tiên của
+    // mỗi frame, và (0, 0, 0) chính là giữa sân — cả đàn chim sẽ bổ nhào xuống
+    // đó trong đúng một frame nếu `skyFocus()` chưa có gì để trả.
+    const before = { ...harness.activity.skyFocus() };
+
+    expect(Number.isFinite(before.x)).toBe(true);
+    expect(Math.hypot(before.x, before.y, before.z)).toBeGreaterThan(1);
+    expect(before.y).toBeGreaterThan(1);
+
+    void harness.activity.play();
+
+    harness.run(120);
+
+    const after = harness.activity.skyFocus();
+
+    // Bay hai giây thì con diều phải đã ở chỗ khác — nếu không thì đàn chim
+    // đang bám theo một điểm đứng im.
+    expect(Math.hypot(after.x - before.x, after.y - before.y, after.z - before.z)).toBeGreaterThan(0.5);
+
+    harness.activity.dispose();
+    harness.stop();
+  });
+
+  it("đàn chim được chỉ tới cột khí nóng gần nhất, ngang tầm con diều", async () => {
+    const harness = makeHarness();
+
+    void harness.activity.play();
+
+    let seen = false;
+
+    // Vài chục giây là đủ để ít nhất một cột khí nóng sinh ra.
+    for (let second = 0; second < 40 && !seen; second += 1) {
+      harness.run(60);
+
+      const focus = harness.activity.skyFocus();
+
+      if (focus.thermal) {
+        seen = true;
+
+        expect(Math.abs(focus.thermal.y - focus.y)).toBeLessThan(0.01);
+        expect(focus.thermal.radius).toBeGreaterThan(0);
+      }
+    }
+
+    expect(seen).toBe(true);
+
+    harness.activity.dispose();
+    harness.stop();
+  });
+
   it("qua độ dài gợi ý thì HUD nhắc cất diều — nhưng ván vẫn không bị cắt ngang", async () => {
     const harness = makeHarness({ suggestedMs: 1000 });
 

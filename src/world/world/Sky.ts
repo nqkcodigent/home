@@ -10,8 +10,15 @@ import { disposeObject } from "./dispose";
  * theo WebGPURenderer chỉ để vẽ gradient.
  *
  * Hai preset: `goldenHour` (buổi chiều tuổi thơ — vàng mật ong) và `night`
- * (căn hộ người lớn — xanh đêm, trăng lạnh).
+ * (xanh đêm, trăng lạnh). `setDusk()` trôi dần từ preset dựng sang `night`:
+ * trời ngả chiều theo tiến trình của người chơi, và bụi nắng hoá đom đóm.
  */
+
+/** Màu đom đóm — bụi nắng đổi sang màu này khi trời tối. */
+const FIREFLY = 0xd8ff7a;
+
+/** Tốc độ trời trôi về mức chạng vạng mới (1/giây) — một buổi hoàng hôn, không phải công tắc. */
+const DUSK_RATE = 0.35;
 
 export interface SkyPreset {
   top: number;
@@ -119,8 +126,26 @@ export class Sky {
 
   private readonly preset: SkyPreset;
 
+  private readonly night = SKY_PRESETS.night;
+
+  private readonly dome: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
+
+  private readonly cloudMaterial: THREE.MeshStandardMaterial;
+
+  private fog: THREE.FogExp2 | undefined;
+
+  /** Vị trí mặt trời hiện tại — trôi theo chạng vạng, bóng đổ bám theo nó. */
+  private readonly sunPosition: THREE.Vector3;
+
+  private dusk = 0;
+
+  private duskTarget = 0;
+
+  private readonly scratch = new THREE.Color();
+
   constructor(preset: SkyPreset, dustCount = 140) {
     this.preset = preset;
+    this.sunPosition = new THREE.Vector3(...preset.sunPosition);
 
     this.group.name = "sky";
 
@@ -146,6 +171,7 @@ export class Sky {
     );
 
     dome.frustumCulled = false;
+    this.dome = dome;
     this.group.add(dome);
 
     // ── Ánh sáng ───────────────────────────────────────────────────────────
@@ -173,6 +199,14 @@ export class Sky {
     this.group.add(this.hemi, this.sun, this.sun.target);
 
     // ── Mây ────────────────────────────────────────────────────────────────
+    this.cloudMaterial = new THREE.MeshStandardMaterial({
+      color: preset.cloud,
+      roughness: 1,
+      metalness: 0,
+      flatShading: true,
+      transparent: true,
+      opacity: preset.cloudOpacity,
+    });
     this.clouds = this.createClouds();
 
     this.group.add(this.clouds);
@@ -213,21 +247,48 @@ export class Sky {
 
   /** Sương mù khớp màu chân trời — để đường chân trời không bị "cắt". */
   applyFog(scene: THREE.Scene) {
-    scene.fog = new THREE.FogExp2(this.preset.fog, this.preset.fogDensity);
+    this.fog = new THREE.FogExp2(this.preset.fog, this.preset.fogDensity);
+    scene.fog = this.fog;
     scene.background = null;
+    this.applyDusk(this.dusk);
+  }
+
+  /** Đặt mức chạng vạng đích (0 = preset dựng, 1 = đêm); trời trôi dần tới đó. */
+  setDusk(level: number, instant = false) {
+    this.duskTarget = Math.min(1, Math.max(0, level));
+
+    if (instant) {
+      this.dusk = this.duskTarget;
+      this.applyDusk(this.dusk);
+    }
+  }
+
+  /** Mức chạng vạng ĐANG hiện (đã làm mượt) — cho test. */
+  get duskLevel(): number {
+    return this.dusk;
   }
 
   /** Đặt lại tâm vùng đổ bóng về quanh người chơi. */
   focusShadows(x: number, z: number) {
     this.sun.target.position.set(x, 0, z);
     this.sun.position.set(
-      x + this.preset.sunPosition[0] * 0.6,
-      this.preset.sunPosition[1],
-      z + this.preset.sunPosition[2] * 0.6,
+      x + this.sunPosition.x * 0.6,
+      this.sunPosition.y,
+      z + this.sunPosition.z * 0.6,
     );
   }
 
   update(dt: number, elapsed: number) {
+    if (Math.abs(this.duskTarget - this.dusk) > 1e-4) {
+      this.dusk += (this.duskTarget - this.dusk) * (1 - Math.exp(-DUSK_RATE * dt));
+      this.applyDusk(this.dusk);
+    }
+
+    // Đom đóm chớp: cả đàn cùng một vật liệu nên chỉ "thở" chung một nhịp.
+    // shortcut: chớp đồng loạt, không so le từng con — cần thì thêm attribute pha + shader.
+    const dust = this.dust.material as THREE.PointsMaterial;
+
+    dust.opacity = 0.6 * (1 - this.dusk) + this.dusk * (0.55 + Math.sin(elapsed * 2.2) * 0.35);
     for (const cloud of this.clouds.children) {
       cloud.position.x += dt * 0.35;
 
@@ -240,7 +301,8 @@ export class Sky {
     const positions = this.dustPositions;
 
     for (let i = 0; i < positions.length; i += 3) {
-      positions[i + 1] += dt * 0.22;
+      // Đom đóm lững lờ hơn bụi nắng.
+      positions[i + 1] += dt * 0.22 * (1 - this.dusk * 0.7);
 
       if (positions[i + 1] > 6) positions[i + 1] = 0.3;
     }
@@ -253,17 +315,53 @@ export class Sky {
     disposeObject(this.group);
   }
 
+  /** Nội suy mọi thông số từ preset dựng sang đêm theo `t`. */
+  private applyDusk(t: number) {
+    const day = this.preset;
+    const night = this.night;
+    const mix = (from: number, to: number) => from + (to - from) * t;
+    const color = (target: THREE.Color, from: number, to: number) =>
+      target.set(from).lerp(this.scratch.set(to), t);
+
+    const uniforms = this.dome.material.uniforms;
+
+    color(uniforms.topColor.value, day.top, night.top);
+    color(uniforms.horizonColor.value, day.horizon, night.horizon);
+    color(uniforms.glowColor.value, day.sun, night.sun);
+    uniforms.glowStrength.value = mix(day.glow, night.glow);
+
+    this.sunPosition.set(
+      mix(day.sunPosition[0], night.sunPosition[0]),
+      mix(day.sunPosition[1], night.sunPosition[1]),
+      mix(day.sunPosition[2], night.sunPosition[2]),
+    );
+    (uniforms.sunDirection.value as THREE.Vector3).copy(this.sunPosition).normalize();
+
+    color(this.hemi.color, day.hemiSky, night.hemiSky);
+    color(this.hemi.groundColor, day.hemiGround, night.hemiGround);
+    this.hemi.intensity = mix(day.hemiIntensity, night.hemiIntensity);
+
+    color(this.sun.color, day.sun, night.sun);
+    this.sun.intensity = mix(day.sunIntensity, night.sunIntensity);
+
+    if (this.fog) {
+      color(this.fog.color, day.fog, night.fog);
+      this.fog.density = mix(day.fogDensity, night.fogDensity);
+    }
+
+    color(this.cloudMaterial.color, day.cloud, night.cloud);
+    this.cloudMaterial.opacity = mix(day.cloudOpacity, night.cloudOpacity);
+
+    const dust = this.dust.material as THREE.PointsMaterial;
+
+    color(dust.color, day.dust, FIREFLY);
+    dust.size = mix(0.09, 0.17);
+  }
+
   private createClouds(): THREE.Group {
     const clouds = new THREE.Group();
 
-    const material = new THREE.MeshStandardMaterial({
-      color: this.preset.cloud,
-      roughness: 1,
-      metalness: 0,
-      flatShading: true,
-      transparent: true,
-      opacity: this.preset.cloudOpacity,
-    });
+    const material = this.cloudMaterial;
 
     for (let index = 0; index < 9; index += 1) {
       const cloud = new THREE.Group();

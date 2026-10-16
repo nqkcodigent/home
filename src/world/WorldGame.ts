@@ -3,7 +3,9 @@ import * as THREE from "three";
 import { Badges } from "./interact/Badges";
 import { CameraRig } from "./CameraRig";
 import { KiteActivity } from "./activities/kite/KiteActivity";
-import { isActivity } from "./activities";
+import { ShuttlecockActivity } from "./activities/shuttlecock/ShuttlecockActivity";
+import { SwimActivity } from "./activities/swim/SwimActivity";
+import { isActivity, keepsMovement } from "./activities";
 import { Engine } from "./Engine";
 import { HowlerAudio } from "./audio/HowlerAudio";
 import { Input } from "./Input";
@@ -12,9 +14,18 @@ import { HELP_LINES, readLines } from "./help";
 import { createChildhoodYard } from "./locations/childhoodYard";
 import { disposeObject } from "./world/dispose";
 import { findActiveSpot } from "./interact/spots";
+import {
+  dressFor,
+  duskLevel,
+  kiteTuning,
+  progress,
+  shuttleTuning,
+  swimTuning,
+} from "./progress";
 import { gameEvents } from "../events";
 import { setInputDevice } from "../ui/device";
 
+import type { ActivityName, RunningActivity } from "./activities";
 import type { FrameInfo } from "./Engine";
 import type { LocationRuntime } from "./locations/types";
 import type { Spot } from "./interact/spots";
@@ -52,8 +63,17 @@ export class WorldGame {
 
   private location: LocationRuntime | undefined;
 
-  /** Trò chơi con đang chạy (thả diều). Chỉ một ván một lúc. */
-  private activity: KiteActivity | undefined;
+  /** Trò chơi con đang chạy (thả diều, bơi ao, đá cầu). Chỉ một ván một lúc. */
+  private activity: RunningActivity | undefined;
+
+  /**
+   * Cú bấm E của frame này, để dành cho ván con.
+   *
+   * `frame()` chạy TRƯỚC listener của ván (đăng ký sau), nên cú bấm phải nằm
+   * chờ ở đây đúng một nhịp — nếu không, phím đá cầu rơi vào khoảng trống giữa
+   * hai listener và người chơi bấm mà không có gì xảy ra.
+   */
+  private interactPressed = false;
 
   private detachFrame: (() => void) | undefined;
 
@@ -74,6 +94,14 @@ export class WorldGame {
 
   private detachHelp: (() => void) | undefined;
 
+  /** Sổ hồi ký đang mở — người chơi đọc sổ thì thế giới đứng im. */
+  private journalOpen = false;
+
+  /** Mức chạng vạng đang dùng — chỉ đổi trời/âm thanh khi nó thật sự đổi. */
+  private dusk = -1;
+
+  private detachJournal: (() => void) | undefined;
+
   /** Idempotent: React StrictMode gọi effect hai lần, chỉ được dựng một engine. */
   start(container: HTMLElement) {
     if (this.engine) return;
@@ -91,8 +119,11 @@ export class WorldGame {
 
     // Khoá/nhả chuột là thay đổi người chơi KHÔNG nhìn thấy (con trỏ chỉ biến
     // mất hoặc hiện lại), nên phải nói thành lời — nhất là khi bấm Esc.
-    this.input.onPointerLock((locked) => {
+    this.input.onPointerLock((locked, quiet) => {
       gameEvents.emit("look", { locked });
+
+      if (quiet) return;
+
       gameEvents.emit("notice", {
         text: locked
           ? "Di chuột để nhìn quanh · Esc để thoát chế độ này"
@@ -104,7 +135,30 @@ export class WorldGame {
     // Trợ giúp là thứ NGƯỜI CHƠI gọi, không phải thứ tự bật lên.
     this.detachHelp = gameEvents.on("help", () => void this.showHelp());
 
+    // Sổ mở từ Rương gỗ, đóng bằng nút trên bảng sổ (bàn phím đi đường phím
+    // Esc trong lớp giao diện) — không có đường nào khác, nên sổ không bao
+    // giờ tự hiện giữa lúc người chơi đang chơi.
+    const offClose = gameEvents.on("journalClose", () => this.closeJournal());
+    // Đổi/mặc đồ ngay trong Sổ: nhân vật thay đồ tức thì, đứng ngay cạnh rương.
+    const offBuy = gameEvents.on("journalBuy", ({ id }) => {
+      if (progress.buy(id)) this.applyDress();
+    });
+    const offWear = gameEvents.on("journalWear", ({ id }) => {
+      if (progress.wear(id)) this.applyDress();
+    });
+
+    // Sổ đổi (ván vừa ghi, trang mới mở) → trời có thể ngả thêm một chút.
+    const offJournal = gameEvents.on("journal", () => this.applyDusk());
+
+    this.detachJournal = () => {
+      offJournal();
+      offClose();
+      offBuy();
+      offWear();
+    };
+
     this.enterWorld();
+    this.applyDress();
 
     this.detachFrame = engine.onUpdate((frame) => this.frame(frame));
 
@@ -131,6 +185,10 @@ export class WorldGame {
 
     this.detachHelp?.();
     this.detachHelp = undefined;
+
+    this.detachJournal?.();
+    this.detachJournal = undefined;
+    this.journalOpen = false;
 
     this.activity?.dispose();
     this.activity = undefined;
@@ -185,6 +243,10 @@ export class WorldGame {
     // món đồ kế tiếp tự phản ứng mà người chơi không bấm gì.
     const interact = input.consumeInteract();
 
+    // Ván con đang chạy thì cú bấm E thuộc về VÁN (đá cầu), không phải đồ vật
+    // trong sân. Cất lại ở đây để ván đọc được nó ngay trong frame này.
+    this.interactPressed = this.activity ? this.interactPressed || interact : false;
+
     // Đang ngồi: bấm E hoặc bất kỳ phím di chuyển nào là đứng dậy.
     if (this.seated && !this.standing && this.controlsEnabled) {
       const move = input.snapshot();
@@ -192,13 +254,22 @@ export class WorldGame {
       if (interact || move.forward !== 0 || move.right !== 0) void this.standUp();
     }
 
-    // Nhân vật đi theo hướng CAMERA: xoay camera rồi bấm W là đi về phía màn
-    // hình, đúng như mọi game góc nhìn thứ ba.
-    location.character.update(input.snapshot(), rig.yawAngle, dt, elapsed);
+    // Ván TỰ LÁI nhân vật (bơi ao) thì vòng lặp chính không được đụng vào: hai
+    // bên cùng ghi vị trí là nhân vật giật giữa bờ và mặt nước.
+    if (this.activity?.drivesCharacter !== true) {
+      // Nhân vật đi theo hướng CAMERA: xoay camera rồi bấm W là đi về phía màn
+      // hình, đúng như mọi game góc nhìn thứ ba.
+      location.character.update(input.snapshot(), rig.yawAngle, dt, elapsed);
+    }
 
     const position = location.character.position;
 
     rig.setTarget(position.x, position.y, position.z);
+
+    // Chim bám theo con diều: ván diều cho điểm trên trời; không có ván nào
+    // (hoặc ván khác) thì `undefined` là chim về lộ trình vòng quanh sân.
+    location.setSkyFocus?.(this.activity?.skyFocus?.());
+
     location.update?.(dt, elapsed);
 
     this.updateSpots(interact);
@@ -216,6 +287,37 @@ export class WorldGame {
   }
 
   // ── Thế giới ────────────────────────────────────────────────────────────
+
+  /**
+   * Trời ngả theo số trang hồi ký đã mở: vòm trời, ánh sáng, đom đóm, và tiếng
+   * chim nhường dần cho tiếng dế. Gọi lại mỗi lần Sổ đổi.
+   */
+  private applyDusk(instant = false) {
+    const level = duskLevel(progress.journal);
+
+    if (level === this.dusk && !instant) return;
+
+    this.dusk = level;
+    this.location?.setDusk?.(level, instant);
+
+    const fade = instant ? 2400 : 6000;
+
+    this.audio.fadeIn("childhoodBirds", fade, 0.26 * (1 - level * 0.85));
+
+    if (level > 0) this.audio.fadeIn("crickets", fade, 0.3 * level);
+  }
+
+  /** Mặc đúng những gì Sổ ghi đang mặc: dáng nhân vật + đuôi con diều chờ. */
+  private applyDress() {
+    const location = this.location;
+
+    if (!location) return;
+
+    const { patch, tail } = dressFor(progress.journal.wearing);
+
+    location.character.dress(patch);
+    location.kiteTail?.(tail);
+  }
 
   private enterWorld() {
     const engine = this.engine;
@@ -247,9 +349,9 @@ export class WorldGame {
       });
     }
 
-    // Tiếng chim chiều lan khắp nhà và sân — nền âm thanh duy nhất, không ai
-    // dẫn chuyện.
-    this.audio.fadeIn("childhoodBirds", 2400, 0.26);
+    // Tiếng chim chiều (rồi tiếng dế khi trời ngả) — nền âm thanh duy nhất,
+    // không ai dẫn chuyện.
+    this.applyDusk(true);
 
     this.setControls(true);
   }
@@ -273,7 +375,9 @@ export class WorldGame {
   private updateSpots(interact: boolean) {
     const location = this.location;
 
-    if (!location || !this.controlsEnabled) return;
+    // Ván con đang chạy thì đồ vật trong sân đứng im: E đã thuộc về ván, và
+    // một nhãn "bấm E" nổi lên giữa ván đá cầu chỉ làm người chơi bấm nhầm.
+    if (!location || !this.controlsEnabled || this.activity) return;
 
     // Đang ngồi thì không có đồ vật nào "trước mặt" — E là để đứng dậy.
     if (this.seated) {
@@ -312,7 +416,7 @@ export class WorldGame {
     if (!location) return;
 
     if (spot.activity) {
-      await this.playActivity(spot.activity);
+      await this.playActivity(spot.activity, spot);
 
       return;
     }
@@ -327,6 +431,8 @@ export class WorldGame {
 
     location.character.face(spot.x, spot.z);
 
+    let opened = false;
+
     try {
       await location.character.perform(
         "reach",
@@ -340,9 +446,54 @@ export class WorldGame {
         },
         REACH_CONTACT,
       );
+
+      // Rương gỗ: với tay mở nắp xong mới mở Sổ hồi ký. Mở TRONG `try` để
+      // `finally` bên dưới biết là đừng trả lại quyền điều khiển — trả rồi
+      // khoá lại ngay trong cùng một frame là nhân vật nhổm dậy giữa lúc
+      // người chơi đang đọc sổ.
+      if (spot.payload?.journal) opened = this.openJournal();
     } finally {
-      if (this.location === location) this.setControls(true);
+      if (this.location === location && !opened) this.setControls(true);
     }
+  }
+
+  /**
+   * Mở Sổ hồi ký.
+   *
+   * Sổ là một ĐỒ VẬT trước khi là một giao diện: người chơi phải tự đi vào
+   * nhà, tới cái rương rồi bấm E. Đó là lý do không có nút "mở hồ sơ" trên
+   * HUD, và cũng là lý do chơi bình thường không có bảng nào tự hiện lên.
+   *
+   * Trả về `false` khi sổ không mở được (đang ngồi, đang có ván, hoặc đã mở
+   * rồi) — lớp gọi dùng đúng giá trị đó để biết có được trả lại quyền không.
+   */
+  private openJournal(): boolean {
+    // KHÔNG kiểm `controlsEnabled` ở đây: đường vào duy nhất là `touch()`, mà
+    // `touch()` đã tạm khoá điều khiển từ lúc với tay tới rương — đòi cờ đó
+    // thì sổ không bao giờ mở được. Chỉ chặn những thứ thật sự chồng lên: một
+    // ván đang chạy, hoặc sổ đã mở rồi.
+    if (this.journalOpen || this.activity) return false;
+
+    this.journalOpen = true;
+    this.setControls(false);
+    // Sổ có nút để bấm: con trỏ phải hiện ra.
+    this.input?.releasePointer();
+
+    // Đẩy sổ hiện tại sang giao diện TRƯỚC khi mở bảng: bảng sổ dựng từ dữ
+    // liệu nhận được, không tự đi hỏi lại.
+    gameEvents.emit("journal", progress.journal);
+    gameEvents.emit("journalView", { open: true });
+
+    return true;
+  }
+
+  private closeJournal() {
+    if (!this.journalOpen) return;
+
+    this.journalOpen = false;
+    gameEvents.emit("journalView", { open: false });
+
+    if (this.location) this.setControls(true);
   }
 
   /**
@@ -395,46 +546,64 @@ export class WorldGame {
   }
 
   /**
-   * Ván thả diều — vào bằng E ở bãi cỏ, ra bằng R lúc nào cũng được.
+   * Ván con — vào bằng E ở một điểm trong sân, ra bằng R (hoặc nút trên bảng
+   * điều khiển) lúc nào cũng được.
    *
-   * Ván không tự kết thúc: dù diều còn dây hay đã đứt và trôi đi, camera bám
-   * theo nó cho tới khi người chơi thu diều. Lúc đó nhân vật kéo dây, camera
-   * trôi về sau lưng, con diều lại nằm chờ trên cỏ — và E là chơi lại.
+   * Ba ván có ba luật điều khiển khác nhau, và đó là toàn bộ khác biệt:
+   *
+   *  - **Diều**: khoá người chơi tại chỗ, camera thuộc về con diều;
+   *  - **Bơi ao**: ván tự lái nhân vật (`drivesCharacter`) — người chơi bơi
+   *    trong nước ngay cả khi lớp đi bộ đã bị khoá, còn camera vẫn theo sau lưng;
+   *  - **Đá cầu**: người chơi đi lại y như đang dạo sân (xem `keepsMovement`),
+   *    chỉ khác là cú bấm E thuộc về quả cầu.
+   *
+   * Không ván nào tự kết thúc: chỉ cú bấm của người chơi mới đóng ván lại, nên
+   * chuyến khám phá của họ không bao giờ bị cắt ngang.
    */
-  private async playActivity(name: string) {
+  private async playActivity(name: string, spot: Spot<SpotData>) {
     if (!isActivity(name)) {
       throw new Error(`World: không có trò chơi "${name}"`);
     }
 
-    const engine = this.engine;
     const location = this.location;
 
-    if (!engine || !location || this.activity) return;
+    if (!location || this.activity) return;
 
-    this.setControls(false);
+    const activity = this.buildActivity(name, spot);
 
-    const activity = new KiteActivity({
-      engine,
-      character: location.character,
-      readInput: () => this.input?.kiteInput() ?? { reel: 0, steer: 0 },
-      readViewToggle: () => this.input?.consumeCameraToggle() ?? false,
-      readExit: () => this.input?.consumeKiteExit() ?? false,
-      camera: (shot) => this.rig?.setShot(shot),
-      forward: location.kiteForward ?? { x: 1, z: 0 },
-    });
+    if (!activity) return;
 
     this.activity = activity;
 
-    // Phím thu diều có HAI cửa: phím R (đi đường `Input`) và nút trên bảng
-    // điều khiển cho màn hình cảm ứng. Hai cửa gộp về MỘT hàng đợi.
-    const detachExit = gameEvents.on("kiteExit", () => this.input?.queueKiteExit());
+    // Cú bấm nào còn nằm trong hàng đợi đều thuộc về NGƯỜI ĐI DẠO trước đó —
+    // cú bấm mở ván đã được đọc rồi, phần còn lại là rác.
+    this.input?.clearPending();
+    this.activeSpotId = undefined;
+    this.badges?.hideAll();
+
+    // Ván GIỮ quyền đi lại thì input sống nguyên — người chơi phải chạy tới
+    // chỗ quả cầu rơi. Ván khoá người chơi tại chỗ (diều, bơi) thì tắt input
+    // đi, nhưng ván vẫn đọc được phím riêng của nó (xem `Input.kiteInput` và
+    // `Input.swimInput`).
+    if (!keepsMovement(name)) this.setControls(false);
+
+    // Phím `R` (đi đường `Input`) và nút trên bảng điều khiển cho màn hình cảm
+    // ứng gộp về đúng MỘT hàng đợi, nên ván không cần biết người chơi vừa bấm
+    // bàn phím hay chạm màn hình.
+    const detachExit = gameEvents.on("exitActivity", () => this.input?.queueExit());
 
     // Con diều nằm trên cỏ được CẤT ĐI trong lúc nó đang bay, và hiện lại đúng
     // chỗ cũ khi ván kết thúc — đó là toàn bộ cơ chế "reset diều".
-    this.setKiteWaiting(location, false);
+    const carriesKite = name === "kite";
+
+    if (carriesKite) this.setKiteWaiting(location, false);
 
     try {
       await activity.play();
+
+      // Ván vừa xong là lúc DUY NHẤT còn đọc được số của nó — ghi vào sổ ngay,
+      // trước khi `dispose()` dọn hình khối đi.
+      this.recordRun(activity);
     } finally {
       // `finally`: một lỗi giữa ván cũng không được để diều nằm lại trong
       // scene hoặc camera kẹt trên trời.
@@ -443,14 +612,105 @@ export class WorldGame {
       // Trả camera TRƯỚC khi kéo dây: camera trôi về sau lưng nhân vật đúng
       // trong lúc tay đang thu dây, hai chuyển động chồng lên nhau.
       activity.dispose();
-      this.activity = undefined;
 
-      this.setKiteWaiting(location, true);
+      if (this.activity === activity) this.activity = undefined;
+
+      this.interactPressed = false;
+
+      if (carriesKite) this.setKiteWaiting(location, true);
     }
 
-    await location.character.perform("reel", REEL_SECONDS);
+    try {
+      // Thu dây: chỉ ván diều có dây để thu.
+      if (carriesKite) await location.character.perform("reel", REEL_SECONDS);
+    } finally {
+      if (this.location === location) this.setControls(true);
+    }
+  }
 
-    if (this.location === location) this.setControls(true);
+  /**
+   * Dựng ván con theo TÊN — chỗ DUY NHẤT biết lớp nào cài trò nào, và cũng là
+   * chỗ duy nhất biết trò ấy cần gì ở bối cảnh (ao ở đâu, quả cầu nằm chỗ nào).
+   * Mọi ván đi qua đúng một cửa này, nên thêm trò mới chỉ là thêm một nhánh —
+   * không phải sửa vòng lặp chính.
+   */
+  private buildActivity(
+    name: ActivityName,
+    spot: Spot<SpotData>,
+  ): RunningActivity | undefined {
+    const engine = this.engine;
+    const location = this.location;
+
+    if (!engine || !location) return undefined;
+
+    switch (name) {
+      case "kite":
+        return new KiteActivity({
+          engine,
+          character: location.character,
+          // Bộ số đã cộng kỹ năng của Sổ hồi ký — đọc lúc DỰNG ván, nên kỹ
+          // năng mở giữa chừng chỉ có tác dụng từ ván sau. Đổi số giữa ván là
+          // cách chắc chắn nhất để người chơi thấy dây dài ra dưới tay mình.
+          tuning: kiteTuning(progress.journal.skills),
+          tailColor: dressFor(progress.journal.wearing).tail,
+          readInput: () => this.input?.kiteInput() ?? { reel: 0, steer: 0 },
+          readViewToggle: () => this.input?.consumeCameraToggle() ?? false,
+          readExit: () => this.input?.consumeExit() ?? false,
+          camera: (shot) => this.rig?.setShot(shot),
+          forward: location.kiteForward ?? { x: 1, z: 0 },
+        });
+
+      case "swim": {
+        const pond = location.pond;
+
+        // Bối cảnh không có ao thì không có ván bơi: bỏ qua còn hơn dựng một
+        // cái ao ma ở gốc toạ độ.
+        if (!pond) return undefined;
+
+        return new SwimActivity({
+          engine,
+          character: location.character,
+          tuning: swimTuning(progress.journal.skills),
+          pond,
+          // Bờ chính là chỗ người chơi đang đứng khi bấm E.
+          entry: { x: spot.x, z: spot.z },
+          readInput: () => this.input?.swimInput() ?? { forward: 0, turn: 0 },
+          readExit: () => this.input?.consumeExit() ?? false,
+        });
+      }
+
+      case "shuttlecock":
+        return new ShuttlecockActivity({
+          engine,
+          character: location.character,
+          tuning: shuttleTuning(progress.journal.skills),
+          spot: { x: spot.x, z: spot.z },
+          readKick: () => this.takeInteract(),
+          readExit: () => this.input?.consumeExit() ?? false,
+        });
+    }
+  }
+
+  /**
+   * Ghi một ván vừa xong vào Sổ hồi ký.
+   *
+   * Gọi đúng MỘT chỗ cho cả ba ván: nếu mỗi ván con tự ghi lấy thì thêm trò
+   * thứ tư là thêm một chỗ nữa để quên, và kỷ lục sẽ có bốn định nghĩa khác
+   * nhau. Ván nào không khai `summary()` thì không có gì được ghi.
+   */
+  private recordRun(activity: RunningActivity) {
+    const summary = activity.summary?.();
+
+    if (summary) progress.record(summary);
+  }
+
+  /** Cú bấm E đang chờ của ván con — đọc xong là hết. */
+  private takeInteract(): boolean {
+    const pressed = this.interactPressed;
+
+    this.interactPressed = false;
+
+    return pressed;
   }
 
   /** Bật/tắt con diều nằm chờ trong sân — xem `LocationRuntime.kite`. */
@@ -463,7 +723,7 @@ export class WorldGame {
    * bảng điều khiển của ván đã nói đủ, và hai lớp chữ chồng nhau chỉ che trời.
    */
   private async showHelp() {
-    if (this.helpOpen || !this.controlsEnabled) return;
+    if (this.helpOpen || !this.controlsEnabled || this.activity) return;
 
     this.helpOpen = true;
     this.setControls(false);

@@ -1000,7 +1000,15 @@ export function createBellTower(): THREE.Group {
 
 // ── Ao nhỏ ────────────────────────────────────────────────────────────────
 
-export function createPond(radius = 3.2): THREE.Group {
+/**
+ * Bán kính mặt nước của cái ao (mét).
+ *
+ * Khai báo thành hằng số vì có BA bên cùng cần con số này: hình khối (`createPond`),
+ * vật cản của nhân vật, và mô hình bơi (bơi ra ngoài bán kính là bơi lên cỏ).
+ */
+export const POND_RADIUS = 3.2;
+
+export function createPond(radius = POND_RADIUS): THREE.Group {
   const pond = new THREE.Group();
 
   pond.name = "pond";

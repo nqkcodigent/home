@@ -5,13 +5,21 @@ import {
   DialogBox,
   GameHUD,
   Joystick,
+  Journal,
   KitePanel,
+  PlayPanel,
   StartScreen,
 } from "./components";
 import { gameEvents } from "./events";
+import { progress } from "./world/progress";
 import { worldGame } from "./world/WorldGame";
 
-import type { DialogPayload, KiteHudPayload, KiteResultPayload } from "./events";
+import type {
+  DialogPayload,
+  KiteHudPayload,
+  KiteResultPayload,
+  PlayHudPayload,
+} from "./events";
 
 /** Thời gian bảng kết quả ván diều nằm trên màn hình (ms) */
 const KITE_RESULT_MS = 5200;
@@ -29,7 +37,17 @@ export default function App() {
 
   const [kiteResult, setKiteResult] = useState<KiteResultPayload | undefined>();
 
+  // Số liệu trò chơi con nhỏ (bơi ao, đá cầu) — cũng là patch.
+  const [play, setPlay] = useState<PlayHudPayload | undefined>();
+
   const [lookLocked, setLookLocked] = useState(false);
+
+  // Sổ hồi ký: React chỉ giữ BẢN SAO để vẽ. Nguồn sự thật là `progress`
+  // (sống ngoài cây React, vì `WorldGame` ghi vào nó), và mọi thay đổi đi
+  // qua đúng một sự kiện `journal`.
+  const [journal, setJournal] = useState(() => progress.journal);
+
+  const [journalOpen, setJournalOpen] = useState(false);
 
   // Chế độ ngắm cảnh: ẩn hết giao diện, chỉ còn thế giới (phím H hoặc nút mắt).
   const [scenic, setScenic] = useState(false);
@@ -107,7 +125,17 @@ export default function App() {
       setKiteResult(data),
     );
 
+    const offPlay = gameEvents.on("play", (data) =>
+      setPlay((previous) => ({ ...previous, ...data })),
+    );
+
     const offLook = gameEvents.on("look", ({ locked }) => setLookLocked(locked));
+
+    const offJournal = gameEvents.on("journal", (data) => setJournal(data));
+
+    const offJournalView = gameEvents.on("journalView", ({ open }) =>
+      setJournalOpen(open),
+    );
 
     return () => {
       offDialog();
@@ -115,7 +143,10 @@ export default function App() {
       offControls();
       offKite();
       offKiteResult();
+      offPlay();
       offLook();
+      offJournal();
+      offJournalView();
     };
   }, []);
 
@@ -158,6 +189,10 @@ export default function App() {
       )}
 
       <KitePanel data={kite} result={kiteResult} />
+
+      <PlayPanel data={play} />
+
+      <Journal open={journalOpen} journal={journal} />
 
       <Joystick />
 

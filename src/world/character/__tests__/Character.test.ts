@@ -336,3 +336,22 @@ describe("Character — ngồi", () => {
     expect(character.position.z).toBeLessThan(-0.5);
   });
 });
+
+describe("Character — thay trang phục", () => {
+  it("dress() dựng lại hình mà giữ nguyên chỗ đứng, hướng và vẫn đi tiếp được", () => {
+    const character = new Character({ variant: "player", x: 1, z: 2, yaw: 0.5 });
+    const before = character.rig;
+
+    character.dress({ accessory: "nonLa", shirt: 0xbcd8ec });
+
+    expect(character.rig).not.toBe(before);
+    expect(character.root.children).toContain(character.rig.root);
+    expect(character.root.children).not.toContain(before.root);
+    expect(character.position.x).toBe(1);
+    expect(character.root.rotation.y).toBeCloseTo(0.5, 6);
+
+    tick(character, 1, { forward: 1, right: 0, run: false });
+
+    expect(character.speed).toBeGreaterThan(0.5);
+  });
+});

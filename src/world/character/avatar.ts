@@ -158,8 +158,12 @@ function mesh(
   return created;
 }
 
-export function createAvatar(variant: AvatarVariant): AvatarRig {
-  const look = AVATAR_LOOKS[variant];
+/**
+ * @param patch  Trang phục đè lên dáng mặc định của biến thể (kiểu tóc, nón,
+ *   màu áo). Không truyền thì bốn biến thể giữ nguyên hình như cũ.
+ */
+export function createAvatar(variant: AvatarVariant, patch: Partial<AvatarLook> = {}): AvatarRig {
+  const look: AvatarLook = { ...AVATAR_LOOKS[variant], ...patch };
   const materials: THREE.MeshStandardMaterial[] = [];
 
   const skin = material(look.skin, materials);

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import { createAvatar } from "./avatar";
+import { disposeObject } from "../world/dispose";
 import {
   createMotionState,
   damp,
@@ -12,7 +13,7 @@ import {
 import { resolveCollisions } from "../physics/collide";
 import { terrainHeight } from "../terrain/heightfield";
 
-import type { AvatarRig, AvatarVariant } from "./avatar";
+import type { AvatarLook, AvatarRig, AvatarVariant } from "./avatar";
 import type { MotionInput, MotionState } from "./motion";
 import type { Bounds, Obstacle } from "../physics/collide";
 
@@ -47,6 +48,8 @@ export interface CharacterOptions {
   radius?: number;
   /** Hệ số nhân độ cao — để hạ nhân vật xuống nếu cần */
   heightOffset?: number;
+  /** Trang phục đè lên dáng mặc định (xem `dress()`) */
+  look?: Partial<AvatarLook>;
   /**
    * Độ cao mặt nền tại (x, z). Mặc định là `terrainHeight`; thế giới có nhà
    * thì truyền hàm biết cả mặt sàn — nếu không chân sẽ lún xuống sàn nhà.
@@ -132,7 +135,8 @@ const MOVING_SPEED = 0.06;
 export class Character {
   readonly root = new THREE.Group();
 
-  readonly rig: AvatarRig;
+  /** Hình nhân vật — đổi được bằng `dress()`, nên đừng giữ tham chiếu lâu. */
+  rig: AvatarRig;
 
   protected readonly options: Required<
     Pick<CharacterOptions, "radius" | "heightOffset">
@@ -171,7 +175,7 @@ export class Character {
     this.ground = options.groundHeight ?? terrainHeight;
     this.footY = this.ground(options.x, options.z);
 
-    this.rig = createAvatar(options.variant);
+    this.rig = createAvatar(options.variant, options.look);
 
     this.state = createMotionState(options.x, options.z, options.yaw ?? 0);
 
@@ -194,6 +198,21 @@ export class Character {
     this.root.add(this.rig.root);
     this.root.position.set(options.x, this.footY + this.options.heightOffset, options.z);
     this.root.rotation.y = this.state.yaw;
+  }
+
+  /**
+   * Thay trang phục: dựng lại hình nhân vật với dáng mới. Vị trí, hướng, đà
+   * và mọi trọng số animation giữ nguyên — frame sau hình mới đã ở đúng tư
+   * thế cũ, nên đổi đồ không làm nhân vật "giật".
+   */
+  dress(look: Partial<AvatarLook>) {
+    const old = this.rig;
+
+    this.rig = createAvatar(this.options.variant, look);
+    this.rig.root.position.copy(old.root.position);
+    this.root.remove(old.root);
+    disposeObject(old.root);
+    this.root.add(this.rig.root);
   }
 
   get position(): THREE.Vector3 {

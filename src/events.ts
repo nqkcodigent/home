@@ -7,6 +7,7 @@
  */
 
 import type { KiteShotMode } from "./world/activities/kite/kiteCamera";
+import type { Journal } from "./world/progress/store";
 
 export interface DialogPayload {
   id?: string;
@@ -43,6 +44,8 @@ export interface KiteHudPayload {
   wind?: number;
   /** Hướng gió theo độ (0 = bắc) */
   windDirection?: number;
+  /** Đang có cơn gió giật — lúc nên thả dây */
+  gust?: boolean;
   /** Dây đang thả (mét) */
   line?: number;
   /** Đã bay bao lâu (giây) — ván diều không đếm ngược, chỉ đếm lên */
@@ -65,6 +68,22 @@ export interface KiteResultPayload {
   detail: string;
 }
 
+/**
+ * Bảng số liệu của các trò chơi con nhỏ (bơi ao, đá cầu…).
+ *
+ * Gửi theo dạng PATCH giống bảng diều: trò chơi chỉ phát sự kiện khi số liệu
+ * đổi, React trộn vào bảng cũ. `stats` là danh sách cố định theo từng trò —
+ * mỗi trò biết mình có mấy con số, còn bảng chỉ việc in chúng ra.
+ */
+export interface PlayHudPayload {
+  visible: boolean;
+  /** Tên trò chơi, ví dụ "Bơi ao" */
+  title: string;
+  stats: { label: string; value: string }[];
+  /** Dòng nhắc việc nên làm tiếp theo */
+  hint?: string;
+}
+
 export interface GameEventMap {
   dialog: DialogPayload;
   dialogNext: undefined;
@@ -79,13 +98,32 @@ export interface GameEventMap {
   kiteResult: KiteResultPayload | undefined;
   /** UI bấm nút đổi góc máy diều (bàn phím đi đường `Input`) */
   kiteView: undefined;
+  /** Số liệu của các trò chơi con nhỏ (bơi ao, đá cầu…) */
+  play: PlayHudPayload;
   /**
-   * UI bấm nút "thu diều" — bản cảm ứng của phím `R`.
+   * Sổ hồi ký vừa đổi — giao diện đọc lại để vẽ.
    *
-   * Cả hai cửa đều gộp về đúng một hàng đợi trong `Input`, nên ván diều
-   * không cần biết người chơi vừa bấm bàn phím hay chạm màn hình.
+   * Sổ sống ở lớp tiến trình chứ không ở React (xem `world/progress`), nên
+   * bảng sổ chỉ là một NGƯỜI ĐỌC: nó không giữ trạng thái, không tự cộng
+   * điểm, và không bao giờ là nguồn sự thật thứ hai.
    */
-  kiteExit: undefined;
+  journal: Journal;
+  /** Người chơi mở/đóng bảng sổ (mở từ Rương gỗ, đóng bằng nút hoặc Esc) */
+  journalView: { open: boolean };
+  /** Sổ: đổi sợi chỉ lấy một món đồ */
+  journalBuy: { id: string };
+  /** Sổ: mặc / cởi một món đã có */
+  journalWear: { id: string };
+  /** UI bấm nút đóng sổ — bản của bàn phím là phím Esc */
+  journalClose: undefined;
+  /**
+   * UI bấm nút "thoát trò chơi" — bản cảm ứng của phím `R`.
+   *
+   * Cả hai cửa đều gộp về đúng một hàng đợi trong `Input`, nên ván con không
+   * cần biết người chơi vừa bấm bàn phím hay chạm màn hình. Tên chung vì mọi
+   * ván con (diều, bơi, đá cầu) đều dùng đúng một lối ra này.
+   */
+  exitActivity: undefined;
 }
 
 type Handler<K extends keyof GameEventMap> = (payload: GameEventMap[K]) => void;

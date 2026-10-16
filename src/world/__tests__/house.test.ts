@@ -86,6 +86,40 @@ describe("nhà — vào được và không xuyên được", () => {
     expect(gap).toBeGreaterThan(CHAR_RADIUS * 2 + 0.3);
   });
 
+  it("lệch khỏi tim cửa nửa bước chân vẫn ra được sân", () => {
+    const doorCenter = (HOUSE.doorFrom + HOUSE.doorTo) / 2;
+
+    // Tường là CHUỖI HÌNH TRÒN, nên cọc ở mép cửa còn đẩy người chơi ra thêm
+    // cả bán kính của nó: lối đi thật hẹp hơn khoảng cửa trông thấy. Ca này
+    // khoá điều đó — người chơi KHÔNG đi đúng tim cửa bao giờ, mà vẫn phải ra
+    // được sân. (Đo bằng số: khe hẹp nhất còn 0,08 m, nên nhân vật phải được
+    // đẩy trượt vào đúng khe; hẹp hơn nữa là kẹt hẳn.)
+    for (const offset of [-0.4, -0.25, -0.1, 0.1, 0.25, 0.4]) {
+      const stop = walk(
+        toWorld(doorCenter + offset, 0),
+        toWorld(doorCenter + offset, HOUSE.depth / 2 + 4),
+      );
+
+      expect(toLocal(stop.x, stop.z).z).toBeGreaterThan(HOUSE.depth / 2 + 2);
+    }
+  });
+
+  it("tường mặt tiền KHÔNG hở: đi thẳng vào chỗ đặc thì không ra được sân", () => {
+    const doorCenter = (HOUSE.doorFrom + HOUSE.doorTo) / 2;
+
+    // Xa khung cửa thì mặt tiền phải CHẶN hẳn. Mọi mốc ở đây đều là chỗ ĐỨNG
+    // ĐƯỢC trong nhà (cách tường hông ít nhất nửa mét) — đứng sẵn trong lòng
+    // tường rồi hỏi vì sao ra được sân là câu hỏi sai.
+    for (const offset of [1.6, 2.0, 2.4, -1.2, -1.6]) {
+      const stop = walk(
+        toWorld(doorCenter + offset, 0),
+        toWorld(doorCenter + offset, HOUSE.depth / 2 + 4),
+      );
+
+      expect(toLocal(stop.x, stop.z).z).toBeLessThan(HOUSE.depth / 2);
+    }
+  });
+
   it("giữa nhà là chỗ ĐỨNG ĐƯỢC — không có vật cản nào đẩy người chơi ra", () => {
     const center = toWorld(0, 0);
     const resolved = resolveCollisions(center.x, center.z, CHAR_RADIUS, obstacles);

@@ -73,10 +73,14 @@ export function StartScreen({ onStart }: Props) {
             chạm vào — cánh cửa gỗ dẫn ra sân.
           </li>
           <li>
-            Con diều nằm trên bãi cỏ: bấm <InputGlyph action="interact" /> để thả, bấm R
-            để thu về.
+            Ngoài sân có ba chỗ chơi được: con diều trên bãi cỏ, quả cầu trên cỏ phía
+            tây, và bờ ao có chỗ xuống nước. Bấm <InputGlyph action="interact" /> để
+            chơi, bấm R để thôi.
           </li>
-          <li>Không có nhiệm vụ nào cả. Cần thì bấm Trợ giúp.</li>
+          <li>
+            Không có nhiệm vụ nào cả. Kỷ lục và những trang hồi ký nằm trong chiếc rương
+            gỗ trong nhà. Cần thì bấm Trợ giúp.
+          </li>
         </ol>
       </div>
     </div>

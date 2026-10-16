@@ -111,6 +111,8 @@ export interface KiteModel {
   readonly group: THREE.Group;
   /** Các đốt đuôi, từ gốc tới ngọn — cho hiệu ứng vung theo gió. */
   readonly tail: readonly THREE.Group[];
+  /** Đổi màu giấy đuôi diều (trang phục); `undefined` là màu giấy mặc định. */
+  setTailColor(color: number | undefined): void;
   dispose(): void;
 }
 
@@ -271,6 +273,9 @@ export function createKiteModel(): KiteModel {
   return {
     group,
     tail,
+    setTailColor(color) {
+      tailPaper.color.setHex(color ?? TAIL_PAPER);
+    },
     dispose() {
       for (const geometry of geometries) geometry.dispose();
       for (const material of materials) material.dispose();
@@ -282,6 +287,11 @@ export function createKiteModel(): KiteModel {
 
 export class KiteField {
   readonly group = new THREE.Group();
+
+  /** Đổi màu đuôi con diều đang bay — xem `KiteModel.setTailColor`. */
+  setTailColor(color: number | undefined) {
+    this.model.setTailColor(color);
+  }
 
   private readonly model = createKiteModel();
 

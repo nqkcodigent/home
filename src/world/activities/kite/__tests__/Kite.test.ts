@@ -169,3 +169,32 @@ describe("describeKiteResult", () => {
     expect(result.detail.length).toBeGreaterThan(0);
   });
 });
+
+describe("đuôi diều theo trang phục", () => {
+  it("đổi màu giấy đuôi rồi trả lại màu mặc định", () => {
+    const kite = createKiteModel();
+    const colors = () => {
+      const found = new Set<number>();
+
+      for (const segment of kite.tail) {
+        segment.traverse((child) => {
+          if (child instanceof THREE.Mesh) found.add((child.material as THREE.MeshStandardMaterial).color.getHex());
+        });
+      }
+
+      return found;
+    };
+
+    const original = colors();
+
+    kite.setTailColor(0x8fcdf0);
+
+    expect(colors().has(0x8fcdf0)).toBe(true);
+
+    kite.setTailColor(undefined);
+
+    expect(colors()).toEqual(original);
+
+    kite.dispose();
+  });
+});

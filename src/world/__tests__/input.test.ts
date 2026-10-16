@@ -133,16 +133,16 @@ describe("Input — hàng đợi cú bấm một-lần", () => {
     element.remove();
   });
 
-  it("ván diều: `R` là phím THU DIỀU, `A`/`D` và mũi tên là lạng", () => {
+  it("ván diều: `R` là phím THOÁT, `A`/`D` và mũi tên là lạng", () => {
     const { element, input } = setup();
 
     hold("KeyR");
 
     expect(input.kiteInput().steer).toBe(0);
-    expect(input.consumeKiteExit()).toBe(true);
+    expect(input.consumeExit()).toBe(true);
 
     // Đọc xong là hết: giữ nguyên phím `R` suốt ván không làm gì thêm.
-    expect(input.consumeKiteExit()).toBe(false);
+    expect(input.consumeExit()).toBe(false);
 
     release("KeyR");
 
@@ -155,8 +155,8 @@ describe("Input — hàng đợi cú bấm một-lần", () => {
       hold(code);
 
       expect(input.kiteInput().steer).toBe(steer);
-      // Lạng diều không bao giờ là thu diều.
-      expect(input.consumeKiteExit()).toBe(false);
+      // Lạng diều không bao giờ là thoát ván.
+      expect(input.consumeExit()).toBe(false);
 
       release(code);
     }
@@ -172,7 +172,7 @@ describe("Input — hàng đợi cú bấm một-lần", () => {
     element.remove();
   });
 
-  it("cú bấm thu diều lúc đọc thoại không rơi sang ván diều", () => {
+  it("cú bấm thoát ván lúc đọc thoại không rơi sang ván diều", () => {
     const { element, input } = setup();
 
     key("KeyR");
@@ -182,11 +182,60 @@ describe("Input — hàng đợi cú bấm một-lần", () => {
     input.setMuted(true);
     input.setMuted(false);
 
-    expect(input.consumeKiteExit()).toBe(false);
+    expect(input.consumeExit()).toBe(false);
 
     key("KeyR");
 
-    expect(input.consumeKiteExit()).toBe(true);
+    expect(input.consumeExit()).toBe(true);
+
+    element.remove();
+  });
+
+  it("`swimInput()` vẫn nghe được phím TRONG NƯỚC — ván bơi khoá lớp đi bộ mà người chơi vẫn phải bơi", () => {
+    const { element, input } = setup();
+
+    // Đang đi dạo: `W` đạp tới trước, chưa quay về đâu cả.
+    hold("KeyW");
+
+    expect(input.snapshot().forward).toBe(1);
+    expect(input.swimInput().forward).toBe(1);
+    expect(input.swimInput().turn).toBe(0);
+
+    // Vào ván bơi: lớp đi bộ bị khoá, và phím ĐANG GIỮ bị nhả sạch — không ai
+    // muốn nhân vật lao xuống nước chỉ vì lúc bấm E tay còn trên phím W.
+    input.setMuted(true);
+
+    expect(input.snapshot().forward).toBe(0);
+    expect(input.swimInput().forward).toBe(0);
+
+    release("KeyW");
+
+    // Bơi: phím bấm TRONG nước thì lớp đi bộ vẫn im lặng, còn `swimInput`
+    // nói thật — đó là toàn bộ lý do nó tồn tại.
+    hold("KeyW");
+
+    expect(input.snapshot().forward).toBe(0);
+    expect(input.swimInput().forward).toBe(1);
+
+    release("KeyW");
+
+    expect(input.swimInput().forward).toBe(0);
+
+    // Quay: `D` là quay phải, `A` là quay trái — và hai phím cùng lúc thì
+    // triệt tiêu nhau, không được cộng dồn thành một cú quay gấp đôi.
+    hold("KeyD");
+
+    expect(input.swimInput().turn).toBe(1);
+
+    hold("KeyA");
+
+    expect(input.swimInput().turn).toBe(0);
+
+    release("KeyD");
+
+    expect(input.swimInput().turn).toBe(-1);
+
+    release("KeyA");
 
     element.remove();
   });

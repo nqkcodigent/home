@@ -4,7 +4,7 @@ import { Character } from "../character/Character";
 import { SKY_PRESETS, Sky } from "../world/Sky";
 import { Terrain } from "../world/Terrain";
 import { rotateObstacles } from "../physics/collide";
-import { YARD } from "../world/layout";
+import { OUTER_TREES, YARD } from "../world/layout";
 import {
   BENCH_SEAT_HEIGHT,
   HOUSE,
@@ -24,13 +24,16 @@ import {
   createTree,
   createWell,
   houseGroundHeight,
+  POND_RADIUS,
 } from "../world/Props";
 import { createKiteModel } from "../activities/kite/Kite";
+import { Creatures } from "../world/Creatures";
 import { damp } from "../character/motion";
 import { terrainHeight } from "../terrain/heightfield";
 
 import type { AudioSlot } from "../audio/HowlerAudio";
 import type { Seat } from "../character/Character";
+import type { Vec3 } from "../world/Creatures";
 import type { Obstacle } from "../physics/collide";
 import type { Spot } from "../interact/spots";
 import type { LocationRuntime, WorldServices } from "./types";
@@ -106,10 +109,18 @@ export interface SeatView extends Seat {
   fov: number;
 }
 
-/** Dữ liệu đi kèm đồ vật: tiếng khi chạm, hoặc một chỗ để ngồi. */
+/** Dữ liệu đi kèm đồ vật: tiếng khi chạm, một chỗ để ngồi, hoặc Sổ hồi ký. */
 export interface SpotData {
   sfx?: AudioSlot;
   seat?: SeatView;
+  /**
+   * Chạm vào thì mở Sổ hồi ký (Rương gỗ trong nhà).
+   *
+   * Cờ này KHÔNG phải "mở một bảng menu": nó nói rằng đồ vật này là chỗ để
+   * đọc sổ. Nhờ nó mà sổ vẫn là một thứ trong thế giới — phải đi tới mới mở
+   * được — chứ không phải một nút trên HUD.
+   */
+  journal?: boolean;
 }
 
 const DOOR_CENTER = (HOUSE.doorFrom + HOUSE.doorTo) / 2;
@@ -138,7 +149,10 @@ const INDOOR_SPOTS: Spot<SpotData>[] = [
     id: "chest",
     ...housePoint(2.5, -1.7),
     radius: 1.3,
-    label: "Rương gỗ",
+    // Nhãn nói việc người chơi SẮP làm, không nói tên món đồ: "Rương gỗ" là
+    // một câu đố, còn "Sổ hồi ký" là chỗ để đọc lại buổi chiều của mình.
+    label: "Sổ hồi ký",
+    payload: { journal: true },
   },
   {
     id: "window",
@@ -203,6 +217,84 @@ const KITE_SPOT: Spot<SpotData> = {
   label: "Thả diều",
   activity: "kite",
 };
+
+/**
+ * Bờ ao phía tây — điểm duy nhất bấm E được để xuống nước.
+ *
+ * Phải nằm NGOÀI vật cản của ao (bán kính `POND_RADIUS` + một chút), vì người
+ * chơi không đi trên mặt nước được: đứng ngoài mép rồi bấm E, ván bơi trượt
+ * người xuống từ đúng chỗ này.
+ */
+const SWIM_SPOT: Spot<SpotData> = {
+  id: "swim",
+  x: YARD.pond.x - (POND_RADIUS + 0.7),
+  z: YARD.pond.z,
+  radius: 2.2,
+  label: "Xuống ao bơi",
+  activity: "swim",
+};
+
+/**
+ * Bãi đá cầu — khoảng cỏ trống phía tây sân.
+ *
+ * Cả ván là một cuộc chạy tới chỗ quả cầu rơi, nên chỗ này phải rộng: không
+ * bụi nào trong hai mét, không đá nào trong ba mét, và cách lối đi đủ xa để
+ * quả cầu đừng rơi xuống đường.
+ */
+const SHUTTLE_SPOT: Spot<SpotData> = {
+  id: "shuttlecock",
+  x: -6,
+  z: 6,
+  radius: 2.6,
+  label: "Đá cầu",
+  activity: "shuttlecock",
+};
+
+/**
+ * Chỗ đậu của chim cành: cột hàng rào, miệng giếng, dây phơi.
+ *
+ * Tính bằng công thức từ chính toạ độ của `YARD` chứ không chép lại số: chim
+ * phải đậu ĐÚNG trên mặt cột (cao 0,95 m) và ĐÚNG trên sợi dây phơi (cao 1,85
+ * m). Lệch nửa mét là con chim lơ lửng giữa không trung, và mắt người chơi
+ * nhận ra ngay.
+ */
+const PERCHES: Vec3[] = (() => {
+  const perches: Vec3[] = [];
+  const postHeight = 0.95;
+  // Cách hai cột một (bước 1,7 m của `createFence`) — mỗi cột một con thì hàng
+  // rào trông như bị dán chim.
+  const step = 3.4;
+
+  for (let x = YARD.fence.from; x <= YARD.fence.to; x += step) {
+    const inGate =
+      x > YARD.fence.gateFrom - 0.9 && x < YARD.fence.gateTo + 0.9;
+
+    if (inGate) continue;
+
+    perches.push({
+      x,
+      y: terrainHeight(x, YARD.fence.z) + postHeight + 0.12,
+      z: YARD.fence.z,
+    });
+  }
+
+  // Miệng giếng: vành đá cao 0,75 m, hai con đậu hai bên.
+  for (const side of [-1, 1]) {
+    perches.push({ x: YARD.well.x + side * 0.95, y: 0.87, z: YARD.well.z });
+  }
+
+  // Dây phơi: sợi dây cao 1,85 m, nghiêng 0,4 radian so với trục sân — chim
+  // đậu trên dây cũng phải đi qua đúng phép xoay đó.
+  for (const local of [-1.4, 1.4]) {
+    perches.push({
+      x: YARD.clothesLine.x + local * Math.cos(0.4),
+      y: 1.97,
+      z: YARD.clothesLine.z - local * Math.sin(0.4),
+    });
+  }
+
+  return perches;
+})();
 
 export function createChildhoodYard(services: WorldServices): LocationRuntime {
   const { engine } = services;
@@ -269,6 +361,17 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
   group.add(memoryTree);
   swayers.push({ object: memoryTree, phase: 1.1 });
 
+  // Vành cây vòng ngoài — xem `OUTER_TREES`. Đây là bìa của vùng đi được, nên
+  // cây phải dày và to hơn cây trong sân: chúng che đường chân trời, và không
+  // ai muốn nhìn thấy mép của tấm lưới đất.
+  OUTER_TREES.forEach(([x, z], index) => {
+    const tree = createTree({ scale: 1.35 + (index % 3) * 0.22, seed: 400 + index * 53 });
+
+    tree.position.set(x, 0, z);
+    group.add(tree);
+    swayers.push({ object: tree, phase: index * 0.9 });
+  });
+
   // ── Hàng rào + cổng ─────────────────────────────────────────────────────
   group.add(
     createFence(YARD.fence.from, YARD.fence.to, YARD.fence.z, {
@@ -326,6 +429,28 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
   school.scale.setScalar(1.6);
   group.add(school);
 
+  // ── Sinh vật ────────────────────────────────────────────────────────────
+  //
+  // Sân không có chim thì sân là một tấm ảnh. Bốn loài ở đây sống theo cùng
+  // một luật: chuyển động tính bằng số từ `elapsed`, không AnimationClip — nên
+  // sân giống nhau ở mọi máy, và `WorldGame` chỉ cần đẩy vị trí con diều vào
+  // `setSkyFocus` là hai con chim đầu đàn rời lộ trình bám theo nó (xem
+  // `Creatures`).
+  const creatures = new Creatures({
+    perches: PERCHES,
+    // Gà bới quanh hai đống rơm, không bước vào đống rơm.
+    chickenZone: {
+      homeX: -11.5,
+      homeZ: -11,
+      radius: 4,
+      avoid: YARD.haystacks.map(([x, z]) => ({ x, z, radius: 1.1 })),
+    },
+    // Bướm lượn quanh mấy khóm hoa — mỗi khóm một con.
+    butterflyZones: YARD.bushes.slice(0, 4).map(([x, z]) => ({ x, z, radius: 3.4 })),
+  });
+
+  group.add(creatures.group);
+
   // ── Con diều nằm chờ trên cỏ ────────────────────────────────────────────
   //
   // Yêu cầu "thoát ra thì diều phải được reset lại vị trí ban đầu trong sân"
@@ -349,7 +474,10 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
     rotation: house.rotation.y,
   });
 
-  const bounds = { minX: -46, maxX: 46, minZ: -46, maxZ: 46 };
+  // Vùng đi được: tới tận vành cây vòng ngoài, không phải dừng ở hàng rào.
+  // Qua cổng là cả cánh đồng (tháp chuông trường làng ở xa), nên con số này
+  // rộng hơn sân cũ gấp rưỡi — và vẫn nằm gọn trong tấm lưới đất 220 m.
+  const bounds = { minX: -72, maxX: 72, minZ: -72, maxZ: 72 };
 
   const character = new Character({
     variant: "player",
@@ -384,8 +512,15 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
     character,
     // Con diều nằm trong sân — bối cảnh đưa nó ra để `WorldGame` giấu/hiện.
     kite: kite.group,
-    spots: [...INDOOR_SPOTS, BENCH_SPOT, KITE_SPOT],
+    kiteTail: (color) => kite.setTailColor(color),
+    setDusk: (level, instant) => sky.setDusk(level, instant),
+    spots: [...INDOOR_SPOTS, BENCH_SPOT, KITE_SPOT, SWIM_SPOT, SHUTTLE_SPOT],
     interact,
+    // Tâm và bán kính THẬT của mặt ao — ván bơi cần con số này, không suy ra
+    // từ hình khối.
+    pond: { x: YARD.pond.x, z: YARD.pond.z, radius: POND_RADIUS },
+    // `WorldGame` đẩy vị trí con diều vào đây mỗi frame trong lúc thả.
+    setSkyFocus: (focus) => creatures.setFocus(focus),
     // Diều bay ra đằng sau hàng rào, về phía đông nam — hướng duy nhất trong
     // sân không có mái nhà che khuất tầm nhìn.
     kiteForward: { x: 0.34, z: 0.94 },
@@ -395,11 +530,24 @@ export function createChildhoodYard(services: WorldServices): LocationRuntime {
     // Camera sau lưng nhân vật (đang quay mặt ra cửa), đủ gần để không chọc
     // qua tường hậu của căn phòng.
     rig: { distance: 4.2, height: 1.0, pitch: 0.3, yaw: HOUSE_ROTATION + Math.PI },
-    badgeHeight: { door: 2.7, lamp: 2.9, chest: 1.6, window: 2.2, bench: 1.8, kite: 2.6 },
+    badgeHeight: {
+      door: 2.7,
+      lamp: 2.9,
+      chest: 1.6,
+      window: 2.2,
+      bench: 1.8,
+      kite: 2.6,
+      swim: 2.4,
+      shuttlecock: 2.2,
+    },
     footstepSlot: "childFootsteps",
     update: (dt, elapsed) => {
       sky.update(dt, elapsed);
       sky.focusShadows(character.position.x, character.position.z);
+
+      // Sinh vật sống cả khi người chơi đứng yên ngắm cảnh: chim bay vòng,
+      // chim cành bay mất khi tới gần, gà bới, bướm lượn.
+      creatures.update(dt, elapsed, character.position);
 
       for (const swayer of swayers) {
         swayer.object.rotation.z = Math.sin(elapsed * 0.75 + swayer.phase) * 0.014;
@@ -451,7 +599,13 @@ function buildColliders(house: THREE.Group): Obstacle[] {
   );
 
   colliders.push({ x: YARD.well.x, z: YARD.well.z, radius: 1.15 });
-  colliders.push({ x: YARD.pond.x, z: YARD.pond.z, radius: 3.3 });
+  // Mép ao: bán kính nước cộng một chút da — vừa đủ để đứng trên bờ bấm E
+  // xuống nước (xem `SWIM_SPOT`), mà không lội vào giữa ao bằng chân.
+  colliders.push({ x: YARD.pond.x, z: YARD.pond.z, radius: POND_RADIUS + 0.1 });
+
+  // Vành cây vòng ngoài: cùng dãy với hình khối, nên người chơi không đi
+  // xuyên qua thân cây ở rìa bản đồ.
+  for (const [x, z] of OUTER_TREES) colliders.push({ x, z, radius: 0.6 });
 
   for (const [x, z] of YARD.bushes) colliders.push({ x, z, radius: 0.6 });
   for (const [x, z] of YARD.rocks) colliders.push({ x, z, radius: 0.7 });

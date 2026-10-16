@@ -51,6 +51,8 @@ export interface KiteTuning {
   windBase: number;
   /** Biên độ gió giật */
   windSwing: number;
+  /** Sức thêm của một cơn gió giật (xem `gustEnvelope`) */
+  windGust: number;
   /** Tốc độ thu/thả dây (mét/giây) */
   feedRate: number;
   /** Dây ngắn nhất / dài nhất (mét) */
@@ -98,6 +100,7 @@ export interface KiteTuning {
 export const DEFAULT_KITE: KiteTuning = {
   windBase: 0.55,
   windSwing: 0.3,
+  windGust: 0.28,
   feedRate: 9,
   lineMin: 4,
   lineMax: 60,
@@ -191,12 +194,34 @@ function fract(value: number): number {
   return ((value % 1) + 1) % 1;
 }
 
+/** Một nhịp gió: giật ngắn rồi lặng dài (giây). */
+export const GUST_PERIOD = 13;
+
+/** Bao gió giật trung bình trên một chu kỳ — trừ đi để gió trung bình không đổi. */
+const GUST_MEAN = (0.5 + 2.5 + 0.75) / GUST_PERIOD;
+
+/**
+ * Bao gió giật 0…1: nổi lên trong 1 s, giật 2,5 s, tắt trong 1,5 s, rồi lặng
+ * tới hết chu kỳ. Nhịp đều tay để người chơi HỌC được: thả dây lúc gió giật thì
+ * diều vọt lên; thả lúc lặng thì dây chùng mà diều chẳng lên.
+ */
+export function gustEnvelope(t: number): number {
+  const phase = fract(t / GUST_PERIOD) * GUST_PERIOD;
+
+  if (phase < 1) return phase;
+  if (phase < 3.5) return 1;
+  if (phase < 5) return 1 - (phase - 3.5) / 1.5;
+
+  return 0;
+}
+
 /**
  * Sức gió tại thời điểm `t` (0,08…1).
  *
- * Ba sóng sin lệch tần số cho ra nhịp gió "thở": có lúc lặng, có lúc giật.
- * Cố ý KHÔNG dùng số ngẫu nhiên: trường gió phải giống nhau ở mọi máy, nếu
- * không thì bảng điểm không so được và test cũng không tất định.
+ * Ba sóng sin lệch tần số cho ra nhịp gió "thở", cộng một nhịp giật–lặng đều
+ * đặn (`gustEnvelope`). Cố ý KHÔNG dùng số ngẫu nhiên: trường gió phải giống
+ * nhau ở mọi máy, nếu không thì bảng điểm không so được và test cũng không tất
+ * định.
  */
 export function windStrength(t: number, tuning: KiteTuning = DEFAULT_KITE): number {
   const wave =
@@ -204,7 +229,13 @@ export function windStrength(t: number, tuning: KiteTuning = DEFAULT_KITE): numb
     Math.sin(t * 0.9 + 1.3) * 0.4 +
     Math.sin(t * 2.3 + 0.7) * 0.18;
 
-  return clamp(tuning.windBase + tuning.windSwing * wave, 0.08, 1);
+  return clamp(
+    tuning.windBase +
+      tuning.windSwing * wave * 0.75 +
+      tuning.windGust * (gustEnvelope(t) - GUST_MEAN),
+    0.08,
+    1,
+  );
 }
 
 /** Hướng gió theo độ (0 = bắc), xoay chậm — chỉ để HUD có cái mà vẽ. */
