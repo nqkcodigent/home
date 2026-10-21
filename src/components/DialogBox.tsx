@@ -79,6 +79,11 @@ export function DialogBox({ id, speaker, text, emotion, portrait }: Props) {
 
   const mood = emotion ? (EMOTION_LABEL[emotion] ?? emotion) : undefined;
 
+  // Tiến độ hiện chữ: một vạch mảnh ở đáy thẻ, cho biết câu còn dài hay sắp hết
+  // — thứ mà con trỏ nhấp nháy không nói được.
+  const progress =
+    text.length === 0 ? 100 : Math.round((visible.length / text.length) * 100);
+
   return (
     <div
       className={`dialog${emotion ? ` dialog--${emotion}` : ""}${
@@ -107,6 +112,13 @@ export function DialogBox({ id, speaker, text, emotion, portrait }: Props) {
             {visible}
             {!isComplete && <span className="dialog__caret">▍</span>}
           </p>
+
+          <span className="dialog__progress" aria-hidden="true">
+            <span
+              className="dialog__progress-fill"
+              style={{ width: `${progress}%` }}
+            />
+          </span>
 
           <div className="dialog__footer">
             {isComplete ? (

@@ -1,42 +1,21 @@
 import type * as THREE from "three";
 
 import type { AudioSlot } from "../audio/HowlerAudio";
-import type { Badges } from "../interact/Badges";
-import type { CameraRig } from "../CameraRig";
 import type { Character } from "../character/Character";
 import type { Engine } from "../Engine";
-import type { HowlerAudio } from "../audio/HowlerAudio";
+import type { Obstacle } from "../physics/collide";
 import type { Spot } from "../interact/spots";
-import type { StageHandlers } from "../../story/StoryDirector";
-import type { StoryLine } from "../../story/StoryDirector";
-import type { Tweens } from "../Tween";
+import type { SkyFocus } from "../world/Creatures";
 
 /**
- * Hợp đồng giữa "một bối cảnh" và bộ máy của game.
+ * Hợp đồng giữa thế giới và bộ máy của game.
  *
- * Bản Phaser cũ có hai Scene gần như song sinh: mỗi scene tự dựng thế giới, tự
- * xử lý nhịp truyện, tự đặt camera. Sửa một lỗi phải sửa hai lần, và phần lớn
- * mã trong đó giống hệt nhau. Ở đây bối cảnh CHỈ khai báo dữ liệu (vật thể,
- * điểm ký ức, điểm kịch bản, tâm trạng ánh sáng); mọi nhịp truyện nằm ở
- * WorldGame, viết một lần.
+ * Thế giới CHỈ khai báo dữ liệu và phản ứng của đồ vật (cửa mở, đèn tắt…);
+ * vòng lặp, camera, phím bấm và trò chơi con đều nằm ở `WorldGame`.
  */
 
 export interface WorldServices {
   engine: Engine;
-  rig: CameraRig;
-  audio: HowlerAudio;
-  badges: Badges;
-  tweens: Tweens;
-  /** Đổi bối cảnh kèm hiệu ứng giấc mơ */
-  transition: (scene: string, duration: number) => void;
-  setControls: (enabled: boolean) => void;
-}
-
-export interface LocationHeading {
-  index: number;
-  title: string;
-  subtitle: string;
-  time: string;
 }
 
 export interface RigPreset {
@@ -47,26 +26,52 @@ export interface RigPreset {
 }
 
 export interface LocationRuntime {
-  /** Tên bối cảnh, khớp với `transition.scene` trong story.json */
-  name: string;
-  heading: LocationHeading;
-  /** Tên đoạn truyện chạy khi vào bối cảnh */
-  story: string;
   group: THREE.Group;
   character: Character;
-  spots: Spot<StoryLine>[];
-  walkPoints: Record<string, { x: number; z: number }>;
-  panPoints: Record<string, { x: number; y: number; z: number }>;
+  /**
+   * Con diều NẰM CHỜ trên cỏ. `WorldGame` giấu nó trong lúc người chơi đang
+   * thả và hiện lại đúng chỗ cũ khi ván kết thúc — đó là toàn bộ cơ chế
+   * "reset diều".
+   */
+  kite?: THREE.Object3D;
+  /** Quả cầu nằm chờ trên bãi cỏ — cất đi lúc đang đá, như con diều */
+  shuttle?: THREE.Object3D;
+  /** Người bạn đứng chờ ở bãi đá cầu — ván đá cầu mượn bạn để đá cùng */
+  friend?: Character;
+  /** Đồ vật tương tác được (bấm E khi đứng gần) */
+  spots: Spot[];
+  /**
+   * Phản ứng của đồ vật khi người chơi chạm vào (mở cửa, bật đèn…). Điểm có
+   * `activity` thì không đi qua đây — `WorldGame` mở trò chơi con.
+   */
+  interact: (spotId: string) => void;
   rig: RigPreset;
-  /** Độ cao đặt nhãn tương tác cho từng điểm (mặc định 2,4 m) */
+  /** Độ cao nhãn tương tác cho từng điểm (mặc định 2,4 m) */
   badgeHeight?: Record<string, number>;
-  footstepSlot: AudioSlot;
-  /** Nguồn âm thanh có vị trí (tiếng trống trường vọng từ xa) */
-  spatialSources?: Partial<Record<AudioSlot, { x: number; y: number; z: number }>>;
-  /** Vài bối cảnh cần một chút chuyển động riêng (cây đung đưa, mây trôi) */
+  /** Tiếng bước chân theo mặt nền tại (x, z) — cỏ và sàn gỗ nghe khác nhau */
+  footstepSlot: (x: number, z: number) => AudioSlot;
+  /** Hướng thả diều (mặt phẳng XZ) — diều phải bay ra chỗ trống */
+  kiteForward?: { x: number; z: number };
+  /**
+   * Cái ao: tâm và bán kính THẬT của mặt nước. Ván bơi cần con số này chứ không
+   * suy ra từ hình khối — bơi ra ngoài mép ao là bơi lên cỏ.
+   */
+  pond?: { x: number; z: number; radius: number };
+  /**
+   * Điểm trên trời cho đàn chim bám theo (con diều). `WorldGame` đẩy vào mỗi
+   * frame lúc đang thả diều; `undefined` là chim về lộ trình vòng quanh sân.
+   */
+  setSkyFocus?: (focus: SkyFocus | undefined) => void;
+  /** Mức chạng vạng 0…1; `instant` để đặt ngay (lúc vào game) thay vì trôi dần */
+  setDusk?: (level: number, instant?: boolean) => void;
+  /** Đổi màu đuôi con diều nằm chờ trên cỏ (trang phục) */
+  kiteTail?: (color: number | undefined) => void;
+  /** Cất kỷ vật đã nhặt khỏi bãi cỏ (id trong `KEEPSAKE_LIST`) */
+  hideKeepsake?: (id: string) => void;
+  /** Lần gần nhất chim cành bị hù bay (nhiệm vụ ẩn "Khách không mời") */
+  lastScare?: () => { x: number; z: number; at: number } | undefined;
+  /** Vật cản tĩnh — camera đọc để không bay xuyên tường, gốc cây */
+  colliders?: readonly Obstacle[];
+  /** Chuyển động riêng của thế giới (cây đung đưa, cửa đang mở…) */
   update?: (dt: number, elapsed: number) => void;
 }
-
-export type LocationBuilder = (services: WorldServices) => LocationRuntime;
-
-export type StageHandlersOf = StageHandlers;

@@ -222,6 +222,41 @@
   box-shadow: var(--fab-gloss), var(--shadow), 0 0 0 3px rgba(155, 228, 202, 0.6);
 }
 
+/* ── Vạch tiến độ hiện chữ ──────────────────────────────────────────────── */
+
+/* Vạch chạy hết chiều ngang thẻ, nằm đè lên mép dưới: nhìn là biết câu thoại
+   còn dài hay sắp hết, thứ mà con trỏ nhấp nháy không nói được. */
+.dialog__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: rgba(95, 185, 143, 0.16);
+  overflow: hidden;
+}
+
+.dialog__progress-fill {
+  display: block;
+  height: 100%;
+
+  background: linear-gradient(90deg, var(--green-200), var(--green-400));
+  transition: width 0.12s linear;
+}
+
+.dialog--tired .dialog__progress-fill,
+.dialog--lonely .dialog__progress-fill,
+.dialog--confused .dialog__progress-fill {
+  background: linear-gradient(90deg, #b9c6e6, #6b7a9e);
+}
+
+.dialog--warm .dialog__progress-fill,
+.dialog--nostalgic .dialog__progress-fill {
+  background: linear-gradient(90deg, #f6c9a4, var(--clay));
+}
+
 @media (max-width: 720px) {
   .dialog__card {
     padding: 16px 16px 14px;

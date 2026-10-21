@@ -12,8 +12,11 @@ interface Props {
  * Màn hình mở đầu.
  *
  * Không chỉ để đẹp: trình duyệt chặn phát âm thanh cho tới khi người dùng tương
- * tác, nên một cú bấm ở đây là thứ mở khoá toàn bộ tiếng dế, tiếng trống trường
- * và tiếng bước chân của cả trò chơi.
+ * tác, nên một cú bấm ở đây là thứ mở khoá tiếng chim, tiếng sáo diều và tiếng
+ * bước chân của cả trò chơi.
+ *
+ * Không có cốt truyện nào: ba dòng ở cuối chỉ nói thế giới có gì để chạm vào,
+ * còn đi đâu, làm gì trước là việc của người chơi.
  */
 export function StartScreen({ onStart }: Props) {
   const [device, setDevice] = useState(getInputDevice);
@@ -43,7 +46,7 @@ export function StartScreen({ onStart }: Props) {
         <h1 className="cover__title">Hồi ký sân nhà</h1>
 
         <p className="cover__lede">
-          Một ngày dài ở thành phố, một giấc mơ dẫn về sân nhà ngày ấy.
+          Một căn nhà nhỏ, một khoảng sân vườn, một buổi chiều chẳng có gì phải vội.
         </p>
 
         <button type="button" className="cover__start" onClick={onStart}>
@@ -61,8 +64,24 @@ export function StartScreen({ onStart }: Props) {
           <span className="cover__controls-text">đi lại</span>
 
           <span className="glyph glyph--key glyph--wide">Chuột</span>
-          <span className="cover__controls-text">kéo để xoay</span>
+          <span className="cover__controls-text">di để nhìn quanh · Esc thả chuột</span>
         </div>
+
+        <ol className="cover__steps">
+          <li>
+            Bạn tỉnh dậy trong nhà. Lại gần đồ vật bấm <InputGlyph action="interact" /> để
+            chạm vào — cánh cửa gỗ dẫn ra sân.
+          </li>
+          <li>
+            Ngoài sân có ba chỗ chơi được: con diều trên bãi cỏ, quả cầu trên cỏ phía
+            tây, và bờ ao có chỗ xuống nước. Bấm <InputGlyph action="interact" /> để
+            chơi, bấm R để thôi.
+          </li>
+          <li>
+            Không có nhiệm vụ nào cả. Kỷ lục và những trang hồi ký nằm trong chiếc rương
+            gỗ trong nhà. Cần thì bấm Trợ giúp.
+          </li>
+        </ol>
       </div>
     </div>
   );

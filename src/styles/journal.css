@@ -1,0 +1,586 @@
+/* ============================================================
+   Sổ hồi ký — bảng duy nhất chỉ mở khi người chơi tự mở
+   ============================================================ */
+
+/* Sổ trượt vào từ bên phải như một trang giấy đặt lên bàn: thế giới vẫn ở
+   phía sau (người chơi vừa đi tới cái rương), nhưng đã tối đi để mắt đọc chữ
+   trên giấy. */
+.journal {
+  position: absolute;
+  inset: 0;
+
+  z-index: var(--z-dialog);
+
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+
+  padding: max(14px, env(safe-area-inset-top, 0px))
+    max(14px, env(safe-area-inset-right, 0px))
+    max(14px, env(safe-area-inset-bottom, 0px))
+    max(14px, env(safe-area-inset-left, 0px));
+
+  background: rgba(13, 26, 23, 0.34);
+  backdrop-filter: blur(3px) saturate(0.9);
+
+  animation: journalFade 0.22s ease both;
+}
+
+@keyframes journalFade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.journal__card {
+  display: flex;
+  flex-direction: column;
+
+  width: min(30rem, 100%);
+  max-height: 100%;
+
+  border-radius: var(--radius);
+  /* Viền nét đứt = đường khâu: sổ được khâu bằng sợi chỉ, không đóng ghim. */
+  border: 1px solid var(--glass-line);
+  outline: 1px dashed rgba(95, 185, 143, 0.45);
+  outline-offset: -7px;
+
+  background: linear-gradient(178deg, #fdfcf4 0%, #f5f1e2 100%);
+
+  box-shadow: var(--shadow);
+
+  overflow: hidden;
+
+  animation: journalIn 0.28s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+
+@keyframes journalIn {
+  from {
+    opacity: 0;
+    transform: translateX(24px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Đầu sổ ─────────────────────────────────────────────────────────────── */
+
+.journal__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+
+  padding: 15px 18px 12px;
+}
+
+.journal__kicker {
+  margin: 0;
+
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.journal__title {
+  margin: 2px 0 0;
+
+  font-family: var(--font-title);
+  font-size: 1.34rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.journal__threads {
+  flex: none;
+
+  padding: 5px 11px;
+
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-line);
+  background: rgba(255, 255, 255, 0.72);
+
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.journal__threads b {
+  font-size: 0.98rem;
+  color: var(--green-500);
+}
+
+/* ── Ba phần ────────────────────────────────────────────────────────────── */
+
+.journal__tabs {
+  display: flex;
+  gap: 6px;
+
+  padding: 0 18px 10px;
+}
+
+.journal__tab {
+  padding: 6px 13px;
+
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+
+  background: transparent;
+  color: var(--ink-soft);
+
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.journal__tab:hover {
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--ink);
+}
+
+.journal__tab.is-on {
+  background: var(--ink);
+  color: #f4fff8;
+}
+
+.journal__tab:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.journal__body {
+  flex: 1;
+  min-height: 0;
+
+  padding: 2px 18px 14px;
+
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.journal__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.journal__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.journal__heading {
+  margin: 6px 0 0;
+
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.journal__list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+
+  margin: 0;
+  padding: 0;
+
+  list-style: none;
+}
+
+.journal__pill {
+  flex: none;
+
+  padding: 2px 9px;
+
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-line);
+  background: rgba(255, 255, 255, 0.72);
+
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.journal__note {
+  margin: 2px 0 0;
+
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+/* ── Mục của buổi chiều hôm nay ─────────────────────────────────────────── */
+
+.journal__task {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+
+  padding: 9px 12px;
+
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(95, 185, 143, 0.28);
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.journal__task.is-done {
+  border-color: rgba(65, 160, 110, 0.5);
+  background: rgba(215, 242, 228, 0.72);
+}
+
+.journal__mark {
+  flex: none;
+
+  display: grid;
+  place-items: center;
+
+  width: 20px;
+  height: 20px;
+
+  border-radius: 50%;
+
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
+.journal__task.is-done .journal__mark {
+  background: var(--green-400);
+  color: #f4fff8;
+}
+
+.journal__task-text {
+  flex: 1;
+
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* ── Kỹ năng ────────────────────────────────────────────────────────────── */
+
+.journal__skill {
+  padding: 9px 12px;
+
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(95, 185, 143, 0.28);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.journal__skill.is-open {
+  border-color: rgba(65, 160, 110, 0.5);
+  background: rgba(215, 242, 228, 0.6);
+}
+
+.journal__skill-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.journal__skill-name {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.journal__skill.is-open .journal__pill {
+  border-color: transparent;
+  background: var(--green-400);
+  color: #f4fff8;
+}
+
+.journal__skill-effect {
+  margin: 3px 0 0;
+
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.journal__skill-hint {
+  margin: 3px 0 0;
+
+  font-size: 0.78rem;
+  font-style: italic;
+  color: rgba(42, 90, 76, 0.55);
+}
+
+/* ── Trang hồi ký ───────────────────────────────────────────────────────── */
+
+.journal__page {
+  padding: 11px 13px;
+
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(95, 185, 143, 0.28);
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.journal__page.is-open {
+  border-color: rgba(217, 139, 106, 0.45);
+  background: rgba(255, 252, 244, 0.92);
+}
+
+.journal__page-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  margin: 0;
+
+  font-family: var(--font-title);
+  font-size: 0.96rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.journal__blank {
+  display: grid;
+  place-items: center;
+
+  width: 19px;
+  height: 19px;
+
+  border-radius: 50%;
+  border: 1px dashed rgba(42, 90, 76, 0.4);
+
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: rgba(42, 90, 76, 0.55);
+}
+
+.journal__page-text {
+  margin: 5px 0 0;
+
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.journal__page-text--hint {
+  color: rgba(42, 90, 76, 0.55);
+  font-style: italic;
+}
+
+/* ── Chân sổ ────────────────────────────────────────────────────────────── */
+
+.journal__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  padding: 11px 18px;
+
+  border-top: 1px solid rgba(95, 185, 143, 0.25);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.journal__records {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.journal__close {
+  flex: none;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  padding: 6px 11px;
+
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-line);
+  background: rgba(255, 255, 255, 0.85);
+
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink);
+
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.journal__close:hover {
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.journal__close:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.journal__close kbd {
+  display: inline-grid;
+  place-items: center;
+
+  min-width: 26px;
+  height: 22px;
+  padding: 0 5px;
+
+  border-radius: 6px;
+  background: rgba(35, 75, 58, 0.9);
+  color: #f4fff8;
+
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+/* Khổ hẹp: sổ chiếm hết bề ngang, chữ nhỏ lại một nhịp. */
+@media (max-width: 520px) {
+  .journal__card {
+    width: 100%;
+  }
+
+  .journal__records {
+    display: none;
+  }
+}
+
+/* ── Trang phục ───────────────────────────────────────────────────────────── */
+
+.journal__looks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 7px;
+
+  margin: 0;
+  padding: 0;
+
+  list-style: none;
+}
+
+.journal__look {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 8px 10px;
+
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(95, 185, 143, 0.28);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.journal__look.is-worn {
+  border-color: rgba(65, 160, 110, 0.6);
+  background: rgba(215, 242, 228, 0.7);
+}
+
+.journal__swatch {
+  flex: none;
+  width: 16px;
+  height: 16px;
+
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.journal__look-name {
+  flex: 1 1 auto;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.journal__look-button {
+  flex: none;
+
+  padding: 3px 10px;
+
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-line);
+  background: #fff;
+
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: var(--ink);
+
+  cursor: pointer;
+}
+
+.journal__look-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.journal__look-button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Bản đồ vẽ tay: nền giấy, nét mực mềm. */
+.journal__map {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto 12px;
+  aspect-ratio: 1;
+  border-radius: var(--radius);
+  background: #f3ead2;
+}
+
+.journal__map-edge {
+  fill: #e4ebc7;
+  stroke: #8aa36b;
+  stroke-width: 1.2;
+  stroke-dasharray: 3 2;
+}
+
+.journal__map-path,
+.journal__map-fence {
+  fill: none;
+  stroke: #b48a5a;
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+.journal__map-fence {
+  stroke: #7a5a3a;
+  stroke-dasharray: 1.5 1;
+}
+
+.journal__map-dot {
+  fill: #4f7a52;
+}
+
+.journal__map-label,
+.journal__map-here {
+  font-size: 4.2px;
+  text-anchor: middle;
+  fill: #3d3328;
+  font-family: var(--font-title);
+}
+
+.journal__map-here {
+  fill: #c0563e;
+  font-style: italic;
+}
+
+.journal__map-star {
+  font-size: 5px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  fill: #d9a21f;
+}

@@ -14,7 +14,10 @@ export interface Spot<P = unknown> {
   /** Bán kính tương tác (mét) */
   radius: number;
   label: string;
+  /** Dữ liệu tuỳ ý đi kèm điểm */
   payload?: P;
+  /** Tên trò chơi con mở ra khi tương tác (vd: `kite`) — chơi lại bao nhiêu lần cũng được. */
+  activity?: string;
 }
 
 export interface SpotMatch<P> {

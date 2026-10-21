@@ -21,6 +21,11 @@ export const AUDIO_SLOTS = {
   childhoodBirds: "/assets/audio/ambience/childhood-birds.mp3",
   crickets: "/assets/audio/ambience/crickets.mp3",
 
+  // Hai bed này do `node scripts/make-ambience.mjs` sinh ra (WAV, không có
+  // giấy phép nào phải hỏi) — xem public/assets/ASSET_LICENSES.md.
+  kiteFly: "/assets/audio/ambience/kite-fly.wav",
+  candleShop: "/assets/audio/ambience/candle-shop.wav",
+
   footsteps: "/assets/audio/sfx/footsteps.mp3",
   childFootsteps: "/assets/audio/sfx/child-footsteps.mp3",
   doorOpen: "/assets/audio/sfx/door-open.mp3",
@@ -202,10 +207,21 @@ export class HowlerAudio {
     let sound = this.sounds.get(slot);
 
     if (!sound) {
+      const src = AUDIO_SLOTS[slot];
+
       sound = new Howl({
-        src: [AUDIO_SLOTS[slot]],
+        src: [src],
         loop,
         volume: 0,
+        // Thiếu file thì Howler im lặng: nhịp truyện fadeIn một slot không có
+        // tiếng nào, và không ai biết vì sao cảnh đó "thiếu thiếu". Một dòng
+        // log nói rõ tên slot và đường dẫn — bắt được cả trường hợp tệ nhất:
+        // máy chủ trả về trang HTML cho một file .mp3 không tồn tại.
+        onloaderror: (_id, error) => {
+          console.warn(
+            `[audio] không tải được "${slot}" (${src}): ${String(error)}`,
+          );
+        },
       });
 
       this.sounds.set(slot, sound);

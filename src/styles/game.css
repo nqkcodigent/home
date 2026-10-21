@@ -19,6 +19,12 @@
   display: block;
   width: 100%;
   height: 100%;
+
+  /* Kéo trên khung game là để xoay camera hoặc kéo dây diều — không bao giờ
+     là cuộn trang. Thiếu dòng này thì trên điện thoại, trình duyệt hiểu cú
+     kéo thành thao tác cuộn, huỷ luôn chuỗi pointermove giữa chừng và người
+     chơi chỉ thấy camera “đứng hình”. */
+  touch-action: none;
 }
 
 /* Viền tối quanh mép: kéo mắt vào giữa khung và làm ảnh 3D trông "phim" hơn. */
@@ -27,11 +33,13 @@
   inset: 0;
   z-index: 2;
   pointer-events: none;
+  /* Nhạt và rộng: đủ để khung hình có chiều sâu mà không tối mép trời. */
   background: radial-gradient(
     ellipse at center,
-    transparent 52%,
-    rgba(9, 26, 22, 0.34) 100%
+    transparent 62%,
+    rgba(9, 26, 22, 0.2) 100%
   );
+  transition: opacity 0.5s ease;
 }
 
 /* ============================================================
@@ -214,12 +222,6 @@
   color: var(--green-500);
 }
 
-.hud__pill--time {
-  position: absolute;
-  top: max(16px, env(safe-area-inset-top, 0px));
-  left: max(16px, env(safe-area-inset-left, 0px));
-}
-
 .hud__right {
   position: absolute;
   top: max(16px, env(safe-area-inset-top, 0px));
@@ -230,14 +232,150 @@
   align-items: center;
 }
 
-.hud__pill--memory {
+/* ── Nút Trợ giúp ──────────────────────────────────────────────────────── */
+
+/* Cùng dáng với các pill cạnh nó, nhưng bấm được — và chỉ xuất hiện khi người
+   chơi đang cầm lái. Đây là lối vào DUY NHẤT của bảng trợ giúp: cốt truyện
+   không tự mở hộp thoại nào nữa. */
+.hud__help {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  padding: 7px 14px;
+
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-line);
+  background: rgba(255, 255, 255, 0.86);
+
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--ink);
+
+  cursor: pointer;
+
+  box-shadow: var(--shadow-soft);
+}
+
+.hud__help:hover {
+  background: #fff;
+}
+
+.hud__help:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.hud__help .hud__icon {
+  width: 16px;
+  height: 16px;
   color: var(--green-500);
 }
 
-.hud__pill--chapter {
-  background: rgba(255, 255, 255, 0.7);
-  font-family: var(--font-title);
-  font-size: 1.02rem;
+/* ── Gợi ý nhìn bằng chuột ─────────────────────────────────────────────── */
+
+.hud__look {
+  position: absolute;
+  top: max(18px, env(safe-area-inset-top, 0px));
+  left: 50%;
+
+  transform: translateX(-50%);
+
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+
+  padding: 6px 14px;
+
+  border-radius: var(--radius-pill);
+  background: rgba(35, 75, 58, 0.5);
+  color: #f4fff8;
+
+  font-size: 0.86rem;
+  font-weight: 700;
+  white-space: nowrap;
+
+  backdrop-filter: blur(6px);
+  animation: hintIn 0.5s ease both;
+}
+
+.hud__look .hud__icon {
+  color: #d7f3e3;
+}
+
+/* ── Chế độ ngắm cảnh ──────────────────────────────────────────────────── */
+
+.scenic-toggle {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: max(18px, env(safe-area-inset-bottom, 0px));
+  z-index: calc(var(--z-hud) + 3);
+
+  display: grid;
+  place-items: center;
+
+  width: 42px;
+  height: 42px;
+
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--ink);
+
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-soft);
+  transition: opacity 0.3s ease, background 0.2s ease;
+}
+
+.scenic-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+.scenic-toggle:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.scenic-toggle:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Cảm ứng: góc dưới phải là nút tương tác, đỉnh giữa là bảng diều — nút mắt
+   lên góc trên bên trái, chỗ duy nhất còn trống. */
+@media (pointer: coarse) {
+  .scenic-toggle {
+    top: max(16px, env(safe-area-inset-top, 0px));
+    right: auto;
+    bottom: auto;
+    left: max(16px, env(safe-area-inset-left, 0px));
+  }
+}
+
+/* Đang ngắm cảnh: nút vẫn ở đó (cảm ứng không có phím H) nhưng mờ hẳn. */
+.scenic-toggle.is-on {
+  opacity: 0.35;
+}
+
+.scenic-toggle.is-on:hover {
+  opacity: 1;
+}
+
+.game.is-scenic .hud,
+.game.is-scenic .kite,
+.game.is-scenic .kite__howto,
+.game.is-scenic .world-badges,
+.game.is-scenic .game__vignette {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hud,
+.world-badges {
+  transition: opacity 0.4s ease;
 }
 
 /* ── Nhãn điều khiển ────────────────────────────────────────────────────── */
@@ -387,29 +525,6 @@
   padding-left: 2px;
 }
 
-/* ── Hiệu ứng giấc mơ ───────────────────────────────────────────────────── */
-
-.dream {
-  position: absolute;
-  inset: 0;
-  z-index: var(--z-dream);
-  pointer-events: none;
-
-  opacity: 0;
-  background: radial-gradient(
-    circle at 50% 55%,
-    #fffdf4 0%,
-    #ffeec6 45%,
-    #ffd9a8 100%
-  );
-
-  transition: opacity 0.55s ease;
-}
-
-.dream.is-active {
-  opacity: 1;
-}
-
 /* ── Cảm ứng ────────────────────────────────────────────────────────────── */
 
 .touch {
@@ -480,6 +595,47 @@
 .touch-action:active {
   transform: translateY(4px);
   box-shadow: var(--fab-gloss), var(--fab-lip), 0 1px 0 rgba(52, 128, 92, 0.3);
+}
+
+/* Nút giữ-để-chạy (dưới nước là lặn): nhỏ hơn, nằm trên nút E. */
+.touch-action--run {
+  bottom: calc(max(48px, env(safe-area-inset-bottom, 0px)) + 92px);
+  width: 58px;
+  height: 58px;
+  right: calc(max(24px, env(safe-area-inset-right, 0px)) + 9px);
+  font-size: 1.3rem;
+}
+
+/* Ba bước của buổi chiều, in trên màn hình mở đầu. */
+.cover__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+
+  margin: 6px 0 0;
+  padding: 14px 18px 14px 34px;
+
+  max-width: 26rem;
+
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(4px);
+
+  text-align: left;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f4fff8;
+}
+
+.cover__steps li {
+  padding-left: 2px;
+  text-shadow: 0 1px 4px rgba(20, 60, 44, 0.4);
+}
+
+.cover__steps li::marker {
+  color: var(--gold);
+  font-weight: 800;
 }
 
 @media (max-width: 720px) {
